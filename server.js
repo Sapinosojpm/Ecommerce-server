@@ -77,6 +77,7 @@ EventEmitter.defaultMaxListeners = 30;
 app.get('/', (req, res) => {
   res.send('Welcome to the Ecommerce Server!');
 });
+app.use('/favicon.ico', express.static(path.join(__dirname, 'public/favicon.ico')));
 // Serve static files from the 'uploads' folder
 app.use('/uploads', (req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
