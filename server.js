@@ -68,11 +68,15 @@ import { dirname } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+
 // Connect to Database and Cloudinary
 connectDB();
 connectCloudinary();
 EventEmitter.defaultMaxListeners = 30;
 
+app.get('/', (req, res) => {
+  res.send('Welcome to the Ecommerce Server!');
+});
 // Serve static files from the 'uploads' folder
 app.use('/uploads', (req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
@@ -96,7 +100,7 @@ if (!fs.existsSync(uploadPath)) {
 // Middleware
 app.use(express.json());
 app.use(cors({
-  origin: ['http://localhost:5174', 'http://localhost:5173','http://localhost:4000'], // Multiple allowed origins
+  origin: ['https://vercel.com/john-paul-milles-projects/ecommerce-frontend', 'http://localhost:5174', 'http://localhost:5173', 'http://localhost:4000'],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true,
 }));
