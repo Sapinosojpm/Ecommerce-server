@@ -1,4 +1,4 @@
-import PageView from "../models/pageViewModel.js";
+import PageView from "../models/pageviewModel.js";
 
 export const trackPageView = async (req, res) => {
   try {
