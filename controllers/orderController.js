@@ -1,10 +1,13 @@
 import orderModel from "../models/orderModel.js";
 import userModel from "../models/userModel.js";
-import productModel from "../models/productModel.js";  // Ensure this is correctly imported
+import productModel from "../models/productModel.js";
 import Stripe from "stripe";
-import Paymongo from 'paymongo-node'; // Ensure this package is installed
+import Paymongo from 'paymongo-node';
 import axios from 'axios';
-import Subscriber from "../models/subscriber.js"; // ✅ Use this instead
+import Subscriber from "../models/subscriber.js";
+import path from "path";
+import fs from "fs";
+import { io } from '../server.js'; // adjust path as needed
 
 // Global variables
 const currency = 'PHP';
@@ -12,14 +15,11 @@ const deliveryCharge = 0;
 
 // Gateway initialization
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
-// const paymongo = new Paymongo(process.env.PAYMONGO_SECRET_KEY);
-
-
+const generateOrderNumber = () => {
+  return 'ORD-' + Date.now() + '-' + Math.floor(Math.random() * 10000);
+};
 
 // Placing orders using COD Method
-// Update the placeOrder function
-// Function to place an order
 const updateProductStock = async (items) => {
   try {
     const updatePromises = items.map(async (item) => {
@@ -28,7 +28,12 @@ const updateProductStock = async (items) => {
         throw new Error("Product ID is missing for an item.");
       }
 
-      const product = await productModel.findById(item.productId); // Find product by ID
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ success: false, message: "No items to order." });
+      }
+      
+
+      const product = await productModel.findById(item.productId);
       if (!product) {
         console.log(`Error: Product with ID ${item.productId} not found.`);
         throw new Error(`Product with ID ${item.productId} not found.`);
@@ -46,28 +51,36 @@ const updateProductStock = async (items) => {
     await Promise.all(updatePromises);
   } catch (error) {
     console.log("Error in updating product stock:", error);
-    throw new Error(error.message); // Propagate the error if anything goes wrong
+    throw new Error(error.message);
   }
 };
-
-// Function to place an order
 const placeOrder = async (req, res) => {
   const session = await orderModel.startSession();
   session.startTransaction();
 
   try {
-    const { userId, items, address, discountCode, amount, voucherAmount } = req.body;
+    const {
+      userId,
+      items,
+      address,
+      discountCode,
+      amount,
+      voucherAmount,
+      voucherCode,
+      variationAdjustment,
+      variationDetails,
+      variations
+    } = req.body;
 
     if (amount <= 0) {
       return res.status(400).json({ success: false, message: "Invalid total amount." });
     }
-    const adjustedAmount = Math.max(amount - (voucherAmount || 0), 0); // Ensure non-negative amount
-    console.log("🎟️ Adjusted Amount after Voucher:", adjustedAmount);
-    
+
+    const safeVariation = typeof variationAdjustment === 'number' ? variationAdjustment : 0;
+    const adjustedAmount = Math.max(amount + safeVariation - (voucherAmount || 0), 0);
     let totalAmount = adjustedAmount;
 
     if (discountCode) {
-      console.log(` Voucher received: ${discountCode}`); 
       const subscriber = await Subscriber.findOne({ discountCode }).session(session);
 
       if (!subscriber || subscriber.isUsed) {
@@ -75,11 +88,99 @@ const placeOrder = async (req, res) => {
         return res.json({ success: false, message: "Invalid or already used discount code." });
       }
 
-      // Mark the voucher as used
-      await Subscriber.findByIdAndUpdate(subscriber._id, { 
-        $unset: { discountCode: "", discountPercent: "" },
-        isUsed: true
-      }, { session });
+      await Subscriber.findByIdAndUpdate(
+        subscriber._id,
+        { $unset: { discountCode: 1 }, isUsed: true },
+        { session }
+      );
+    }
+
+    for (const item of items) {
+      console.log("📦 Processing order item:", item);
+
+      const product = await productModel.findById(item.productId);
+      if (!product) {
+        console.warn(`⚠️ Product not found: ${item.productId}`);
+        continue;
+      }
+
+      console.log("📦 Found product:", product);
+
+      if (item.variationId) {
+        let variationUpdated = false;
+
+        // Checking product variations
+        for (let variation of product.variations) {
+          console.log(`🔍 Checking variation: ${variation.name}`);
+
+          // Find the variation option by ID
+          const option = variation.options.find(
+            (opt) => opt._id.toString() === item.variationId.toString()
+          );
+
+          if (option) {
+            console.log(
+              `🔍 Found option: ${option.name}, Available quantity: ${option.quantity}`
+            );
+
+            // Check if there's enough stock
+            if (option.quantity >= item.quantity) {
+              option.quantity -= item.quantity; // Deduct the quantity from selected option
+              await product.save(); // Save product after stock deduction
+              console.log(
+                `📦 Stock updated for variation: ${variation.name} - option: ${option.name}. Quantity left: ${option.quantity}`
+              );
+
+              // If stock hits 0, send instruction message
+              if (option.quantity === 0) {
+                console.log(
+                  `⚠️ Stock for variation: ${variation.name} - option: ${option.name} has hit 0. Please restock.`
+                );
+              }
+
+              variationUpdated = true;
+            } else {
+              console.warn(
+                `⚠️ Not enough stock for variation: ${variation.name} - option: ${option.name}. Available: ${option.quantity}, Requested: ${item.quantity}`
+              );
+            }
+            break;
+          } else {
+            console.warn(
+              `⚠️ Variation option not found for variation: ${variation.name}, option ID: ${item.variationId}`
+            );
+          }
+        }
+
+        if (!variationUpdated) {
+          console.warn(
+            `⚠️ Variation option ID not matched or insufficient stock for variation: ${item.variationId}`
+          );
+        }
+      } else {
+        // No variation, deduct from base product stock
+        console.log(`🔍 Current stock for ${product.name}: ${product.variations[0].options[0].quantity}`);
+        console.log(`🔍 Quantity to deduct: ${item.quantity}`);
+
+        if (product.variations[0].options[0].quantity >= item.quantity) {
+          product.variations[0].options[0].quantity -= item.quantity; // Deduct from base stock
+          await product.save(); // Save product after stock deduction
+          console.log(
+            `📦 Base stock updated for product: ${product.name}. Quantity left: ${product.variations[0].options[0].quantity}`
+          );
+
+          // If stock hits 0, send instruction message
+          if (product.variations[0].options[0].quantity === 0) {
+            console.log(
+              `⚠️ Stock for product: ${product.name} has hit 0. Please restock.`
+            );
+          }
+        } else {
+          console.warn(
+            `⚠️ Not enough base stock for product: ${product.name}. Available: ${product.variations[0].options[0].quantity}, Requested: ${item.quantity}`
+          );
+        }
+      }
     }
 
     const orderData = {
@@ -92,77 +193,106 @@ const placeOrder = async (req, res) => {
       date: Date.now(),
       discountCode: discountCode || null,
       voucherAmount: voucherAmount || 0,
+      voucherCode: voucherCode || null,
+      orderNumber: generateOrderNumber(),
+      variationDetails: variationDetails || null,
+      variations: variations || null,
     };
 
     const newOrder = new orderModel(orderData);
     await newOrder.save({ session });
+
     await userModel.findByIdAndUpdate(userId, { cartData: {} }, { session });
+
+    if (voucherCode) {
+      const userVoucherUpdated = await userModel.updateOne(
+        { _id: userId, "claimedVouchers.voucherCode": voucherCode },
+        { $set: { "claimedVouchers.$.isActive": false } },
+        { session }
+      );
+
+      if (userVoucherUpdated.modifiedCount === 0) {
+        const user = await userModel.findById(userId);
+        if (user?.email) {
+          const subscriber = await Subscriber.findOne({
+            email: { $regex: "^" + user.email.trim() + "$", $options: "i" },
+            discountCode: { $regex: "^" + voucherCode.trim() + "$", $options: "i" }
+          }).session(session);
+
+          if (subscriber) {
+            await Subscriber.updateOne(
+              { _id: subscriber._id, discountCode: voucherCode },
+              {
+                $unset: { discountCode: 1 },
+                $set: { isActive: false, usedAt: new Date() }
+              },
+              { session }
+            );
+          }
+        }
+      }
+    }
+
+    io.to(newOrder.userId.toString()).emit('newOrder', newOrder);
+    io.to('admin_room').emit('newOrderAdmin', newOrder);
+    io.to(`order_${newOrder._id.toString()}`).emit('orderStatusUpdate', newOrder);
 
     await session.commitTransaction();
     session.endSession();
 
-    res.json({ success: true, message: "Order Placed", order: newOrder });
+    return res.json({ success: true, message: "Order Placed", order: newOrder });
+
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
-    res.status(500).json({ success: false, message: "Error placing order." });
+    console.error("❌ Error placing order:", error);
+    return res.status(500).json({ success: false, message: "Error placing order." });
   }
 };
 
+
+
 const placeOrderStripe = async (req, res) => {
   try {
-    const { userId, items, amount, address, voucherAmount } = req.body;
+    const { userId, items, amount, address, voucherAmount, voucherCode, variationAdjustment } = req.body;
     const { origin } = req.headers;
-
-    console.log("Received amount from frontend:", amount); // Debugging log
 
     if (amount <= 0) {
       return res.status(400).json({ success: false, message: "Invalid total amount." });
     }
 
-    const adjustedAmount = Math.max(amount - (voucherAmount || 0), 0); // Ensure non-negative amount
-    console.log("🎟️ Adjusted Amount after Voucher:", adjustedAmount);
-
+    const safeVariation = typeof variationAdjustment === 'number' ? variationAdjustment : 0;
+    const adjustedAmount = Math.max(amount + safeVariation - (voucherAmount || 0), 0);
     const totalAmount = adjustedAmount;
-    console.log("Total amount received from frontend:", totalAmount); // Debugging log
 
+    // 🔥 Add orderNumber here
     const orderData = {
       userId,
       items,
       address,
-      amount: totalAmount, // Ensure this is the final amount
+      amount: totalAmount,
       paymentMethod: "Stripe",
       payment: false,
       date: Date.now(),
       voucherAmount: voucherAmount || 0,
+      voucherCode: voucherCode || null,
+      orderNumber: generateOrderNumber(), // 🔥 Add this
     };
 
     const newOrder = new orderModel(orderData);
     await newOrder.save();
 
-    // If a voucher was used, mark it as used
-    if (req.body.discountCode) {
-      await Subscriber.findOneAndUpdate(
-        { discountCode: req.body.discountCode },
-        { $unset: { discountCode: "", discountPercent: "" }, isUsed: true }
-      );
-    }
-
     const line_items = items.map((item) => {
-      const itemPrice = Math.round((adjustedAmount / items.length) * 100); // Use adjustedAmount
-      console.log(`Item: ${item.name}, Final Price: ${itemPrice / 100}`); // Debugging log
-    
+      const itemPrice = Math.round((adjustedAmount / items.length) * 100);
       return {
         price_data: {
           currency: "PHP",
           product_data: { name: item.name },
-          unit_amount: itemPrice, // ✅ Use the discounted amount instead
+          unit_amount: itemPrice,
         },
         quantity: item.quantity,
       };
     });
-    
-    console.log("Final total amount sent to Stripe:", totalAmount); // Debugging log
 
     const session = await stripe.checkout.sessions.create({
       success_url: `${origin}/verify?success=true&orderId=${newOrder._id}`,
@@ -178,71 +308,179 @@ const placeOrderStripe = async (req, res) => {
   }
 };
 
-// Verify Stripe payment
 const verifyStripe = async (req, res) => {
-  const { orderId, success, userId } = req.body;
   try {
-    if (success === 'true') {
-      const order = await orderModel.findById(orderId);
-      if (!order) {
-        return res.status(404).json({ success: false, message: 'Order not found.' });
-      }
+    const { orderId, success, userId } = req.body;
 
-      for (let item of order.items) {
-        const product = await productModel.findById(item._id);
-        if (product) {
-          const updatedQuantity = product.quantity - item.quantity;
-          if (updatedQuantity < 0) {
-            return res.json({ success: false, message: "Not enough stock for one or more items." });
-          }
-          await productModel.findByIdAndUpdate(item._id, { quantity: updatedQuantity }, { new: true });
-        } else {
-          return res.json({ success: false, message: `Product with ID ${item._id} not found.` });
-        }
-      }
-
-      // ✅ Remove the discountCode and discountPercent after payment success
-      if (order.discountCode) {
-        const subscriber = await Subscriber.findOne({ discountCode: order.discountCode });
-        if (subscriber) {
-          await subscriber.updateOne({ $unset: { discountCode: "", discountPercent: "" } });
-          console.log(`🎟️ Discount code removed: ${order.discountCode}`);
-        } else {
-          console.warn(`⚠️ No subscriber found with discount code: ${order.discountCode}`);
-        }
-      }
-
-      // ✅ Disable the voucher
-      if (order.voucherAmount > 0) {
-        const user = await userModel.findById(order.userId);
-        if (user) {
-          const voucher = user.claimedVouchers.find(v => v.voucherAmount === order.voucherAmount);
-          if (voucher) {
-            await disableVoucherForUser(order.userId, voucher._id);
-            console.log(`Voucher disabled: ${voucher._id}`);
-          } else {
-            console.log("Voucher not found in user claimedVouchers array");
-          }
-        } else {
-          console.error(`❌ User not found: ${order.userId}`);
-        }
-      }
-
-      await orderModel.findByIdAndUpdate(orderId, { payment: true });
-      await userModel.findByIdAndUpdate(userId, { cartData: {} });
-
-      res.json({ success: true });
-    } else {
-      await orderModel.findByIdAndDelete(orderId);
-      res.json({ success: false });
+    if (!orderId || !userId) {
+      return res.status(400).json({ success: false, message: "Order ID and User ID are required." });
     }
+
+    const order = await orderModel.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found." });
+    }
+
+    if (order.payment) {
+      return res.status(400).json({ success: false, message: "Order already processed." });
+    }
+
+    if (success === true || success === "true") {
+      console.log("💳 Stripe Payment Successful. Processing order...");
+
+       // ✅ Deduct Stock
+       for (const item of order.items) {
+        console.log("📦 Processing order item:", item);
+
+        const product = await productModel.findById(item.productId);
+        if (!product) {
+          console.warn(`⚠️ Product not found: ${item.productId}`);
+          continue;
+        }
+
+        console.log("📦 Found product:", product);
+
+        if (item.variationId) {
+          let variationUpdated = false;
+
+          // Checking product variations
+          for (let variation of product.variations) {
+            console.log(`🔍 Checking variation: ${variation.name}`);
+
+            // Find the variation option by ID
+            const option = variation.options.find(
+              (opt) => opt._id.toString() === item.variationId.toString()
+            );
+
+            if (option) {
+              console.log(
+                `🔍 Found option: ${option.name}, Available quantity: ${option.quantity}`
+              );
+
+              // Check if there's enough stock
+              if (option.quantity >= item.quantity) {
+                option.quantity -= item.quantity; // Deduct the quantity from selected option
+                await product.save(); // Save product after stock deduction
+                console.log(
+                  `📦 Stock updated for variation: ${variation.name} - option: ${option.name}. Quantity left: ${option.quantity}`
+                );
+
+                // If stock hits 0, send instruction message
+                if (option.quantity === 0) {
+                  console.log(
+                    `⚠️ Stock for variation: ${variation.name} - option: ${option.name} has hit 0. Please restock.`
+                  );
+                }
+
+                variationUpdated = true;
+              } else {
+                console.warn(
+                  `⚠️ Not enough stock for variation: ${variation.name} - option: ${option.name}. Available: ${option.quantity}, Requested: ${item.quantity}`
+                );
+              }
+              break;
+            } else {
+              console.warn(
+                `⚠️ Variation option not found for variation: ${variation.name}, option ID: ${item.variationId}`
+              );
+            }
+          }
+
+          if (!variationUpdated) {
+            console.warn(
+              `⚠️ Variation option ID not matched or insufficient stock for variation: ${item.variationId}`
+            );
+          }
+        } else {
+          // No variation, deduct from base product stock
+          console.log(`🔍 Current stock for ${product.name}: ${product.variations[0].options[0].quantity}`);
+          console.log(`🔍 Quantity to deduct: ${item.quantity}`);
+
+          if (product.variations[0].options[0].quantity >= item.quantity) {
+            product.variations[0].options[0].quantity -= item.quantity; // Deduct from base stock
+            await product.save(); // Save product after stock deduction
+            console.log(
+              `📦 Base stock updated for product: ${product.name}. Quantity left: ${product.variations[0].options[0].quantity}`
+            );
+
+            // If stock hits 0, send instruction message
+            if (product.variations[0].options[0].quantity === 0) {
+              console.log(
+                `⚠️ Stock for product: ${product.name} has hit 0. Please restock.`
+              );
+            }
+          } else {
+            console.warn(
+              `⚠️ Not enough base stock for product: ${product.name}. Available: ${product.variations[0].options[0].quantity}, Requested: ${item.quantity}`
+            );
+          }
+        }
+      }
+
+      // Mark payment
+      order.payment = true;
+      order.status = "paid";
+      await order.save();
+
+      // Clear user cart
+      const user = await userModel.findById(userId);
+      if (user) {
+        user.cartData = [];
+        await user.save();
+        console.log(`🛒 Cart cleared for user ${userId}`);
+      }
+
+      // Deactivate voucher if used
+      if (order.voucherCode) {
+        console.log(`🎟️ Processing voucher usage: ${order.voucherCode}`);
+
+        const updated = await userModel.updateOne(
+          { _id: userId, "claimedVouchers.voucherCode": order.voucherCode },
+          { $set: { "claimedVouchers.$.isActive": false } }
+        );
+
+        if (updated.modifiedCount === 0) {
+          console.log("🔍 Checking for subscriber-based voucher...");
+          const user = await userModel.findById(userId);
+          if (user?.email) {
+            const subscriber = await Subscriber.findOne({
+              email: { $regex: `^${user.email.trim()}$`, $options: "i" },
+              discountCode: { $regex: `^${order.voucherCode.trim()}$`, $options: "i" },
+            });
+
+            if (subscriber) {
+              await Subscriber.updateOne(
+                { _id: subscriber._id, discountCode: order.voucherCode },
+                {
+                  $unset: { discountCode: 1 },
+                  $set: { isActive: false, usedAt: new Date() },
+                }
+              );
+              console.log("✅ Subscriber voucher deactivated");
+            }
+          }
+        }
+      }
+
+      // Emit WebSocket events
+      io.to(order.userId.toString()).emit('newOrder', order);
+      io.to('admin_room').emit('newOrderAdmin', order);
+      io.to(`order_${order._id.toString()}`).emit('orderStatusUpdate', order);
+
+      return res.json({ success: true, message: "Order verified and processed.", order });
+    } else {
+      return res.json({ success: false, message: "Stripe payment was not successful." });
+    }
+
   } catch (error) {
-    console.log(error);
-    res.json({ success: false, message: error.message });
+    console.error("❌ Error verifying Stripe payment:", error);
+    return res.status(500).json({ success: false, message: "Server error while verifying order." });
   }
 };
 
-// All orders data for Admin Panel
+
+
+
 const allOrders = async (req, res) => {
   try {
     const orders = await orderModel.find({});
@@ -253,39 +491,43 @@ const allOrders = async (req, res) => {
   }
 };
 
-// User Order Data for frontend
 const userOrders = async (req, res) => {
   try {
     const { userId } = req.body;
     const orders = await orderModel.find({ userId });
-
-    // Modify this part to extract only the ObjectId string
     const formattedOrders = orders.map(order => ({
-      ...order.toObject(), // Convert to plain object
-      _id: order._id.toString() // Extract ObjectId as string
+      ...order.toObject(),
+      _id: order._id.toString()
     }));
-
     res.json({ success: true, orders: formattedOrders });
   } catch (error) {
     console.error(error);
     res.json({ success: false, message: error.message });
   }
-}
+};
 
 const updateStatus = async (req, res) => {
   try {
     const { orderId, status } = req.body;
-    await orderModel.findByIdAndUpdate(orderId, { status });
+    const order = await orderModel.findByIdAndUpdate(orderId, { status }, { new: true });
+    
+    if (order) {
+      const io = req.app.get('io'); // Get the io instance from app
+      if (io) {
+        io.to(order.userId.toString()).emit('orderUpdated', order);
+        io.to('admin_room').emit('orderUpdatedAdmin', order);
+        io.to(`order_${order._id.toString()}`).emit('orderStatusUpdate', order);
+      }
+    }
+    
     res.json({ success: true, message: "Status Updated" });
   } catch (error) {
     console.log(error);
     res.json({ success: false, message: error.message });
   }
 };
-
-
 const cancelOrder = async (req, res) => {
-  const orderId = req.params.id; // More descriptive variable name
+  const orderId = req.params.id;
 
   try {
     const order = await orderModel.findById(orderId);
@@ -298,8 +540,6 @@ const cancelOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Order is already canceled.' });
     }
 
-    // Use a transaction (if your database supports it) for atomicity
-    // This ensures that either all updates succeed or none do.
     const session = await orderModel.startSession();
     session.startTransaction();
 
@@ -313,9 +553,6 @@ const cancelOrder = async (req, res) => {
           if (product) {
             product.quantity += item.quantity;
             await product.save({ session });
-          } else {
-            console.warn(`Product with ID ${item.productId} not found for restoration.`);
-            // Consider throwing an error here if missing products are critical
           }
         })
       );
@@ -335,4 +572,226 @@ const cancelOrder = async (req, res) => {
   }
 };
 
-export { verifyStripe, placeOrder, cancelOrder, placeOrderStripe, allOrders, userOrders, updateStatus, updateProductStock };
+const uploadReceipt = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "No receipt file uploaded" });
+    }
+
+    // Add validation for orderData
+    if (!req.body.orderData || req.body.orderData === 'undefined') {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Order data is required",
+        receivedData: req.body
+      });
+    }
+
+    let orderData;
+    try {
+      orderData = JSON.parse(req.body.orderData);
+    } catch (parseError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order data format",
+        error: parseError.message,
+        receivedData: req.body.orderData
+      });
+    }
+
+    // Validate items before creating order
+    if (!orderData.items || orderData.items.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Order must contain at least one item" 
+      });
+    }
+
+    // Check stock availability first
+    for (const item of orderData.items) {
+      const product = await productModel.findById(item.productId);
+      if (!product) {
+        return res.status(400).json({
+          success: false,
+          message: `Product ${item.productId} not found`
+        });
+      }
+
+      // Check stock for variations or base product
+      if (item.variationId) {
+        // Variation stock check logic
+        let hasStock = false;
+        for (const variation of product.variations) {
+          const option = variation.options.find(opt => 
+            opt._id.toString() === item.variationId.toString()
+          );
+          if (option && option.quantity >= item.quantity) {
+            hasStock = true;
+            break;
+          }
+        }
+        if (!hasStock) {
+          return res.status(400).json({
+            success: false,
+            message: `Not enough stock for variation ${item.variationId}`
+          });
+        }
+      } else {
+        // Base product stock check
+        if (product.variations[0].options[0].quantity < item.quantity) {
+          return res.status(400).json({
+            success: false,
+            message: `Not enough stock for ${product.name}`
+          });
+        }
+      }
+    }
+
+    // Create the order with receipt information
+    const newOrder = new orderModel({
+      ...orderData,
+      date: new Date(),
+      payment: false,
+      paymentMethod: "receipt_upload",
+      receiptImage: {
+        filename: req.file.filename,
+        path: req.file.path,
+        mimetype: req.file.mimetype
+      },
+      orderNumber: generateOrderNumber(),
+      status: 'order placed' // Ensure status is set
+    });
+
+    // Save the order
+    await newOrder.save();
+
+    // Update product stock
+    for (const item of newOrder.items) {
+      const product = await productModel.findById(item.productId);
+      if (item.variationId) {
+        // Update variation stock
+        for (const variation of product.variations) {
+          const option = variation.options.find(opt => 
+            opt._id.toString() === item.variationId.toString()
+          );
+          if (option) {
+            option.quantity -= item.quantity;
+            await product.save();
+          }
+        }
+      } else {
+        // Update base product stock
+        product.variations[0].options[0].quantity -= item.quantity;
+        await product.save();
+      }
+    }
+
+    // Clear user cart
+    if (newOrder.userId) {
+      await userModel.findByIdAndUpdate(newOrder.userId, { cartData: {} });
+    }
+
+    // Handle voucher if used
+    if (newOrder.voucherCode && newOrder.userId) {
+      await userModel.updateOne(
+        { _id: newOrder.userId, "claimedVouchers.voucherCode": newOrder.voucherCode },
+        { $set: { "claimedVouchers.$.isActive": false } }
+      );
+    }
+
+    // Emit WebSocket events
+    io.to(newOrder.userId.toString()).emit('newOrder', newOrder);
+    io.to('admin_room').emit('newOrderAdmin', newOrder);
+    io.to(`order_${newOrder._id.toString()}`).emit('orderStatusUpdate', newOrder);
+
+    return res.status(201).json({ 
+      success: true, 
+      message: "Order created successfully. Receipt uploaded and pending verification.",
+      orderId: newOrder._id,
+      order: newOrder // Include full order details in response
+    });
+
+  } catch (error) {
+    console.error("Receipt upload error:", {
+      message: error.message,
+      stack: error.stack,
+      receivedFiles: req.file,
+      receivedBody: req.body
+    });
+    
+    // If order was created but other operations failed, delete it
+    if (error.orderId) {
+      await orderModel.findByIdAndDelete(error.orderId);
+    }
+
+    return res.status(500).json({ 
+      success: false, 
+      message: "An unexpected error occurred",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+
+// Download or View Receipt
+export const getReceipt = async (req, res) => {
+  try {
+    const order = await orderModel.findById(req.params.orderId);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    if (!order.receiptImage || !order.receiptImage.path) {
+      return res.status(400).json({ success: false, message: "No receipt available" });
+    }
+
+    const receiptPath = path.resolve(order.receiptImage.path);
+
+    // Check if file exists
+    if (!fs.existsSync(receiptPath)) {
+      return res.status(404).json({ success: false, message: "Receipt file not found" });
+    }
+
+    // Send file as a response
+    res.download(receiptPath, `receipt_${order._id}.jpg`);
+  } catch (error) {
+    console.error("Error fetching receipt:", error);
+    res.status(500).json({ success: false, message: "Error fetching receipt" });
+  }
+};
+
+// Confirm Payment
+export const confirmPayment = async (req, res) => {
+  try {
+    const { orderId } = req.body;
+    const order = await orderModel.findById(orderId);
+
+    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+
+    if (order.status === "confirmed") {
+      return res.status(400).json({ success: false, message: "Payment is already confirmed" });
+    }
+
+    order.status = "confirmed";
+    order.payment = true; // Mark as paid
+    await order.save();
+
+    res.json({ success: true, message: "Payment confirmed successfully" });
+  } catch (error) {
+    console.error("Error confirming payment:", error);
+    res.status(500).json({ success: false, message: "Failed to confirm payment" });
+  }
+};
+
+export {
+  uploadReceipt,
+  verifyStripe,
+  placeOrder,
+  cancelOrder,
+  placeOrderStripe,
+  allOrders,
+  userOrders,
+  updateStatus,
+  updateProductStock
+};

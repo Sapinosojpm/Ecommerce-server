@@ -2,10 +2,9 @@ import mongoose from 'mongoose';
 
 const subscriberSchema = new mongoose.Schema(
   {
-    email: {
+    email: {  // ✅ Changed from `email` (string) to `emails` (array)
       type: String,
       required: true,
-      unique: true,
       lowercase: true,
       trim: true,
     },
@@ -13,10 +12,18 @@ const subscriberSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    discountPercent: { // New field to store the discount percentage
+    discountPercent: { 
       type: Number,
-      default:0,
+      default: 0,
       required: true,
+    },
+    isActive: {  
+      type: Boolean,
+      default: true,
+    },
+    usedAt: { 
+      type: Date,
+      default: null,
     },
   },
   { timestamps: true }

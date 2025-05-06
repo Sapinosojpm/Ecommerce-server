@@ -1,6 +1,7 @@
 import express from 'express';
-import { loginUser, registerUser, adminLogin, getAllUsers, googleLogin,changeUserRole } from '../controllers/userController.js';
+import { loginUser, registerUser, adminLogin, getAllUsers, googleLogin,changeUserRole,completeRegistration,finalizeRegistration } from '../controllers/userController.js';
 import authUser from '../middleware/admin.js'; // Import the authUser middleware
+import {  requestPasswordResetWithOTP,verifyResetOTP,resetPasswordAfterOTP,} from "../controllers/resetPasswordController.js";
 
 const userRouter = express.Router();
 
@@ -20,6 +21,14 @@ userRouter.post('/google-login', googleLogin); // This route handles Google logi
 userRouter.get('/users', authUser, getAllUsers);
 
 userRouter.put("/update-role/:userId", authUser, changeUserRole);
+
+
+userRouter.post('/complete-registration', completeRegistration); // Finalize after OTP
+userRouter.post('/finalize-registration', finalizeRegistration);
+
+userRouter.post('/request-password-reset-otp', requestPasswordResetWithOTP);
+userRouter.post('/verify-reset-otp', verifyResetOTP);
+userRouter.post('/reset-password', resetPasswordAfterOTP);
 
 
 // userRouter.post('/api/user/google-login', googleLogin); // Define the POST route for Google login

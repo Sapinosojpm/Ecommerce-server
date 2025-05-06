@@ -9,7 +9,7 @@ const ensureDirExists = (dir) => {
   }
 };
 
-// Your existing storage setup (kept unchanged)
+// Existing storage setup (kept unchanged)
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, "./uploads"); // Default directory for uploads
@@ -19,7 +19,7 @@ const storage = multer.diskStorage({
   },
 });
 
-// New: Additional storage setup for categorized uploads (resumes, images, documents)
+// Additional storage setup for categorized uploads (resumes, images, documents, videos)
 const categorizedStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     let uploadFolder = "./uploads/others"; // Default folder
@@ -30,6 +30,8 @@ const categorizedStorage = multer.diskStorage({
       uploadFolder = "./uploads/images";
     } else if (file.fieldname === "document") {
       uploadFolder = "./uploads/documents";
+    } else if (file.fieldname === "video") { 
+      uploadFolder = "./uploads/videos"; // New directory for videos
     }
 
     ensureDirExists(uploadFolder);
@@ -40,15 +42,16 @@ const categorizedStorage = multer.diskStorage({
   },
 });
 
-// New: File validation rules for specific uploads
+// File validation rules for specific uploads
 const fileFilter = (req, file, cb) => {
   const allowedMimeTypes = {
     resume: ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
     profileImage: ["image/jpeg", "image/png", "image/gif"],
     document: ["application/pdf", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+    video: ["video/mp4", "video/mpeg", "video/quicktime"] // Allowed video formats
   };
 
-  const fileType = file.fieldname; // Get fieldname (resume, profileImage, document)
+  const fileType = file.fieldname; // Get fieldname (resume, profileImage, document, video)
   const isAllowed = allowedMimeTypes[fileType]?.includes(file.mimetype);
 
   if (isAllowed) {
@@ -59,7 +62,7 @@ const fileFilter = (req, file, cb) => {
 };
 
 // Export both general and categorized upload configurations
-const upload = multer({ storage: storage }); // Your existing upload setup
+const upload = multer({ storage }); // Your existing upload setup
 const categorizedUpload = multer({ storage: categorizedStorage, fileFilter });
 
 export { upload, categorizedUpload };

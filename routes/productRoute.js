@@ -8,11 +8,23 @@ import {
   updateProductDiscount,
   updateBestSeller,
   updateProductPrice,
+  updateCapital,
+  updateAdditionalCapital,
+  updateVAT,
+  bulkUploadProducts,
+  updateAskForDiscount,
+  updateProductVariationsAdmin
 } from '../controllers/productController.js';
 import upload from '../middleware/multer.js';
 import adminAuth from '../middleware/adminAuth.js';
 
 const productRouter = express.Router();
+
+// Get a list of products
+productRouter.get('/list', listProduct);
+
+// Get a single product by ID
+productRouter.get('/:id', singleProduct);
 
 // Add a new product
 productRouter.post(
@@ -23,20 +35,13 @@ productRouter.post(
     { name: 'image2', maxCount: 1 },
     { name: 'image3', maxCount: 1 },
     { name: 'image4', maxCount: 1 },
+    { name: 'video', maxCount: 1 }
   ]),
   addProduct
 );
 
 // Delete a product
 productRouter.delete('/delete', adminAuth, removeProduct);
-// Get a single product by ID (Change POST to GET)
-
-
-// Get a single product by ID
-productRouter.post('/single', singleProduct);
-
-// Get a list of products
-productRouter.get('/list', listProduct);
 
 // Update product quantity
 productRouter.put('/updateQuantity/:id', adminAuth, async (req, res) => {
@@ -90,5 +95,12 @@ productRouter.put('/updateDiscount/:id', adminAuth, updateProductDiscount);
 // Update Best Seller status
 productRouter.put('/updateBestSeller/:id', adminAuth, updateBestSeller);
 productRouter.put('/updatePrice/:id', adminAuth, updateProductPrice);
+productRouter.put('/updateCapital/:id', adminAuth, updateCapital);
+productRouter.put('/updateAdditionalCapital/:id', adminAuth, updateAdditionalCapital);
+productRouter.put('/updateVAT/:id', adminAuth, updateVAT);
+productRouter.post('/bulk', adminAuth, bulkUploadProducts);
+productRouter.put('/updateVariations/:id', adminAuth, updateProductVariationsAdmin);
+// Update askForDiscount for a product
+productRouter.put("/updateAskForDiscount/:id", adminAuth, updateAskForDiscount);
 
 export default productRouter;

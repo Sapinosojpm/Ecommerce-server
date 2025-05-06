@@ -1,89 +1,106 @@
-import nodemailer from 'nodemailer';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcrypt';
-import userModel from '../models/userModel.js'; // Ensure this is correct
+// controllers/passwordResetController.js
+import User from "../models/userModel.js";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+import nodemailer from "nodemailer";
+import crypto from "crypto";
 
-// Route to initiate password reset (send reset link)
-const initiateResetPassword = async (req, res) => {
+// Configure email transporter
+const transporter = nodemailer.createTransport({
+  service: process.env.EMAIL_SERVICE,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD,
+  },
+});
+
+export const requestPasswordReset = async (req, res) => {
   try {
-    const { email, backendUrl } = req.body;  // Accepting backendUrl from the request
+    const { email } = req.body;
 
-    // Check if the user exists
-    const user = await userModel.findOne({ email });
+    // Find user by email
+    const user = await User.findOne({ email });
     if (!user) {
-      return res.json({ success: false, message: "User doesn't exist" });
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // Generate a reset token (expires in 15 minutes)
-    const resetToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const resetTokenExpires = Date.now() + 3600000; // 1 hour from now
 
-    // Create the reset link using the passed backendUrl
-    const resetLink = `${backendUrl}/reset-password/${resetToken}`;
+    // Save token to user
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpires = resetTokenExpires;
+    await user.save();
 
-    // Set up nodemailer transporter
-    const transporter = nodemailer.createTransport({
-      service: 'Gmail',
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
-      debug: true,  // Enable debugging to check if the email is being sent
-    });
+    // Create reset URL
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
 
-    // Configure email options
+    // Send email
     const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: 'Password Reset',
-      html: `<p>Click the link below to reset your password:</p>
-             <p><a href="${resetLink}">${resetLink}</a></p>
-             <p>This link will expire in 15 minutes.</p>`,
+      to: user.email,
+      from: process.env.EMAIL_FROM,
+      subject: "Password Reset Request",
+      html: `
+        <p>You requested a password reset for your account.</p>
+        <p>Click this link to reset your password:</p>
+        <a href="${resetUrl}">${resetUrl}</a>
+        <p>This link will expire in 1 hour.</p>
+        <p>If you didn't request this, please ignore this email.</p>
+      `,
     };
 
-    // Send the email
     await transporter.sendMail(mailOptions);
-    console.log('Password reset email sent successfully to:', email);
-    res.json({ success: true, message: 'Password reset link sent to your email' });
 
+    res.status(200).json({
+      success: true,
+      message: "Password reset link sent to your email",
+    });
   } catch (error) {
-    console.log('Error while sending password reset email:', error);
-    res.json({ success: false, message: 'Something went wrong' });
+    console.error("Password reset request error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error processing password reset request",
+    });
   }
 };
 
-// Route to update the password (after verifying token)
-const resetPassword = async (req, res) => {
+export const resetPassword = async (req, res) => {
   try {
     const { token, newPassword } = req.body;
 
-    // Verify the reset token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Find user by token and check expiration
+    const user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpires: { $gt: Date.now() },
+    });
 
-    // Check if the user exists
-    const user = await userModel.findById(decoded.id);
     if (!user) {
-      return res.json({ success: false, message: "User doesn't exist" });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired password reset token",
+      });
     }
 
-    // Validate the new password
-    if (newPassword.length < 8) {
-      return res.json({ success: false, message: 'Password must be at least 8 characters long' });
-    }
-
-    // Hash the new password
+    // Hash new password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
 
-    // Update the user's password
+    // Update user password and clear reset token
     user.password = hashedPassword;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
     await user.save();
 
-    res.json({ success: true, message: 'Password updated successfully' });
+    res.status(200).json({
+      success: true,
+      message: "Password has been successfully reset",
+    });
   } catch (error) {
-    console.log('Error while resetting password:', error);
-    res.json({ success: false, message: 'Invalid or expired token' });
+    console.error("Password reset error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error resetting password",
+    });
   }
 };
-
-// Exporting the functions
-export { initiateResetPassword, resetPassword };

@@ -103,150 +103,214 @@ export const deleteAllVouchers = async (req, res) => {
     }
 };
 
+
 // CLAIM VOUCHER
 export const claimVoucher = async (req, res) => {
     try {
-        const { id } = req.params;
-        const userId = req.user.id; // Galing sa auth middleware
+        // Try to get userId from authenticated user first, then from body
+        const userId = req.user?.id || req.body.userId;
+        const voucherId = req.params.id;
 
         if (!userId) {
-            return res.status(401).json({ message: "Unauthorized: Please log in." });
+            return res.status(400).json({ success: false, message: "User ID is required" });
         }
 
-        const voucher = await VoucherAmountModel.findById(id);
-        if (!voucher || !voucher.isActive) {
-            return res.status(400).json({ message: "Voucher not available." });
+        const voucher = await VoucherAmountModel.findById(voucherId);
+        if (!voucher) {
+            return res.status(404).json({ success: false, message: "Voucher not found" });
+        }
+
+        if (!voucher.isActive) {
+            return res.status(400).json({ success: false, message: "Voucher is inactive" });
         }
 
         const user = await UserModel.findById(userId);
         if (!user) {
-            return res.status(404).json({ message: "User not found." });
+            return res.status(404).json({ success: false, message: "User not found" });
         }
 
-        // ❌ Check kung nakuha na niya dati ang voucher
-        if (user.claimedVouchers.includes(voucher._id.toString())) {
-            return res.status(400).json({ message: "You have already claimed this voucher." });
+        // Check if already claimed (updated to match your schema)
+        const alreadyClaimed = user.claimedVouchers.some(v => v.voucher.equals(voucherId));
+        if (alreadyClaimed) {
+            return res.status(400).json({ success: false, message: "Voucher already claimed" });
         }
 
-        // ✅ Add voucher to user's claimedVouchers array
-        user.claimedVouchers.push(voucher._id);
-        await user.save(); // 🚀 Ensure that it's saved in the database
+        // Add the voucher to user's claimed vouchers
+        user.claimedVouchers.push({
+            voucher: voucher._id,
+            voucherCode: voucher.code,
+            voucherAmount: voucher.voucherAmount,
+            voucherMinPurchase: voucher.minimumPurchase,
+            isActive: true
+        });
 
-        res.json({ success: true, message: "Voucher claimed successfully!", claimedVouchers: user.claimedVouchers });
+        await user.save();
+        return res.status(200).json({ 
+            success: true, 
+            message: "Voucher claimed successfully", 
+            voucherAmount: voucher.voucherAmount 
+        });
 
     } catch (error) {
-        console.error("❌ Error claiming voucher:", error);
-        res.status(500).json({ message: "Error claiming voucher" });
+        console.error("Error claiming voucher:", error);
+        return res.status(500).json({ success: false, message: "Server error" });
     }
 };
 
-export const applyVoucher = async (req, res) => {
-    console.log("🔍 applyVoucher function HIT!", req.body);
 
+
+export const applyVoucher = async (req, res) => {
     try {
         const { code, totalAmount } = req.body;
         const userId = req.user.id;
 
         if (!userId) {
-            return res.status(401).json({ message: "Unauthorized: Please log in." });
+            return res.status(401).json({ success: false, message: "Unauthorized: Please log in." });
         }
         if (!code) {
-            return res.status(400).json({ message: "Voucher code is required" });
+            return res.status(400).json({ success: false, message: "Voucher code is required" });
         }
         if (!totalAmount) {
-            return res.status(400).json({ message: "Total amount is required" });
+            return res.status(400).json({ success: false, message: "Total amount is required" });
         }
 
-        console.log("🔍 Received totalAmount:", totalAmount);
-
-        // 🔍 Get user with populated vouchers
-        const user = await UserModel.findById(userId).populate({
-            path: "claimedVouchers",
-            match: { code, isActive: true }
-        });
+        const user = await UserModel.findById(userId).populate("claimedVouchers.voucher");
 
         if (!user) {
-            return res.status(404).json({ message: "User not found" });
+            return res.status(404).json({ success: false, message: "User not found" });
         }
 
-        const voucher = user.claimedVouchers[0]; // 🎯 Directly access filtered voucher
+        const claimedVoucher = user.claimedVouchers.find(v => v.voucherCode === code);
 
-        if (!voucher) {
-            return res.status(400).json({ message: "Invalid or unclaimed voucher" });
+        if (!claimedVoucher || !claimedVoucher.isActive) {
+            return res.status(400).json({ success: false, message: "Voucher is no longer valid." });
         }
 
+        const voucher = claimedVoucher.voucher;
+
+        // Check if the voucher is expired
         if (voucher.expirationDate && new Date(voucher.expirationDate) < new Date()) {
-            return res.status(400).json({ message: "Voucher expired" });
+            return res.status(400).json({ success: false, message: "Voucher has expired" });
         }
 
+        // Ensure minimum purchase requirement
         if (totalAmount < voucher.minimumPurchase) {
             return res.status(400).json({
+                success: false,
                 message: `This voucher requires a minimum purchase of ₱${voucher.minimumPurchase}`,
                 minimumRequired: voucher.minimumPurchase,
                 givenAmount: totalAmount
             });
         }
 
-        console.log("✅ Voucher Applied Successfully:", voucher);
-        res.json({ success: true, voucherAmount: voucher.voucherAmount, voucher });
+        // Calculate the discount after applying the voucher
+        const discountedAmount = totalAmount - voucher.voucherAmount;
+
+        // Send successful response with the discount details
+        return res.json({
+            success: true,
+            voucherAmount: voucher.voucherAmount,
+            discountedAmount: discountedAmount,
+            voucherCode: code,
+            voucher
+        });
 
     } catch (error) {
         console.error("❌ Error applying voucher:", error);
-        res.status(500).json({ message: "Error applying voucher" });
+        return res.status(500).json({ success: false, message: "Error applying voucher" });
     }
 };
 
 
-// UserController.js
 
 export const getUserClaimedVouchers = async (req, res) => {
     try {
-        const userId = req.user.id; // Get user ID from auth middleware
-        const user = await UserModel.findById(userId).populate("claimedVouchers"); // Populate the claimedVouchers array
+        const userId = req.user.id;
+        console.log("🔍 Fetching claimed vouchers for user:", userId);
+
+        const user = await UserModel.findById(userId);
+
         if (!user) {
+            console.log("❌ User not found.");
             return res.status(404).json({ message: "User not found." });
         }
 
-        res.json(user.claimedVouchers);
+        console.log("✅ User found:", user._id);
+
+        // ✅ Return only the voucher IDs
+        const claimedVoucherIds = user.claimedVouchers.map(cv => cv.voucher.toString());
+
+        console.log("🎟️ Claimed Voucher IDs:", claimedVoucherIds);
+
+        res.json(claimedVoucherIds); // Send only the claimed voucher IDs
     } catch (error) {
-        console.error("Error fetching claimed vouchers:", error);
+        console.error("❌ Error fetching claimed vouchers:", error);
         res.status(500).json({ message: "Internal server error." });
     }
 };
 
+export const getUserClaimedVouchers1 = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        console.log("🔍 Fetching claimed vouchers for user:", userId);
+
+        const user = await UserModel.findById(userId);
+
+        if (!user) {
+            console.log("❌ User not found.");
+            return res.status(404).json({ message: "User not found." });
+        }
+
+        console.log("✅ User found:", user._id);
+
+        // ✅ Return the full claimed vouchers array
+        res.json(user.claimedVouchers);
+    } catch (error) {
+        console.error("❌ Error fetching claimed vouchers:", error);
+        res.status(500).json({ message: "Internal server error." });
+    }
+};
+
+
 // VoucherAmountController.js
 
-export const disableVoucherForUser = async (userId, voucherId) => {
+export const disableVoucherForUser = async (userId, voucherCode) => {
     try {
-        console.log(`Attempting to disable voucher ${voucherId} for user ${userId}`);
+        console.log(`🛑 Attempting to disable voucher: ${voucherCode} for user: ${userId}`);
 
         const user = await UserModel.findById(userId);
         if (!user) {
-            console.error(`User ${userId} not found.`);
-            return;
+            console.error(`❌ User not found: ${userId}`);
+            return false;
         }
 
-        console.log(`User ${userId} found. Claimed vouchers:`, user.claimedVouchers);
+        console.log("📌 Current claimed vouchers:", user.claimedVouchers);
 
-        const initialLength = user.claimedVouchers.length;
+        let updated = false;
+        user.claimedVouchers = user.claimedVouchers.map(voucher => {
+            console.log(`🔍 Checking voucher: ${voucher.voucherCode} (Active: ${voucher.isActive})`);
+            
+            if (voucher.voucherCode === voucherCode && voucher.isActive) {
+                console.log(`✅ Disabling voucher: ${voucherCode}`);
+                voucher.isActive = false;
+                updated = true;
+            }
+            return voucher;
+        });
 
-        user.claimedVouchers = user.claimedVouchers.filter(
-            (claimedVoucher) => claimedVoucher.toString() !== voucherId.toString()
-        );
+        console.log("📌 Updated claimed vouchers:", user.claimedVouchers);
 
-        const finalLength = user.claimedVouchers.length;
-
-        if (initialLength === finalLength) {
-            console.warn(`Voucher ${voucherId} not found in user's claimed vouchers.`);
+        if (updated) {
+            user.markModified("claimedVouchers"); // ✅ Important step to mark the field as modified
+            await user.save(); // ✅ Save the changes to MongoDB
+            console.log(`✅ Voucher ${voucherCode} successfully disabled.`);
+            return true;
         } else {
-            console.log(`Voucher ${voucherId} disabled for user ${userId}.`);
+            console.warn(`⚠️ Voucher ${voucherCode} was not found or already disabled.`);
+            return false;
         }
-
-        await user.save();
-
-        console.log(`User ${userId} claimed vouchers after disable:`, user.claimedVouchers);
-
     } catch (error) {
-        console.error(`Error disabling voucher ${voucherId} for user ${userId}:`, error);
+        console.error(`❌ Error disabling voucher: ${error.message}`);
+        return false;
     }
 };
