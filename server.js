@@ -134,7 +134,7 @@ if (!fs.existsSync(uploadPath)) {
 // Middleware
 app.use(express.json());
 app.use(cors({
-  origin: ['https://ecommerce-frontend-peach-rho.vercel.app','*','http://localhost:5174', 'http://localhost:5173', 'http://localhost:4000'],
+  origin: ['https://ecommerce-frontend-peach-rho.vercel.app','https://ecommerce-frontend-yoevqhnww-john-paul-milles-projects.vercel.app','*','http://localhost:5174', 'http://localhost:5173', 'http://localhost:4000'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization', 'token']
