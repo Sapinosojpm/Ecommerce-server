@@ -731,7 +731,7 @@ app.post("/api/paymongo/webhook", async (req, res) => {
 });
 
 // Start the server
-httpServer.listen(port, () => {
+httpServer.listen(port, '0.0.0.0',  () => {
   console.log('Server started on PORT: ' + port);
   console.log('Socket.IO server running');
 });
