@@ -18,6 +18,7 @@ export const trackPageView = async (req, res) => {
       return res.status(200).json({ message: "Page view recorded", userId });
     }
 
+    
     res.status(200).json({ message: "View already recorded in this session", userId });
   } catch (error) {
     res.status(500).json({ error: "Error tracking page views" });
