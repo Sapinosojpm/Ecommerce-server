@@ -147,22 +147,26 @@ const updateCart = async (req, res) => {
 // In getUserCart controller
 const getUserCart = async (req, res) => {
   try {
-    const { userId } = req.body;
-    const userData = await userModel.findById(userId);
-
-    // Ensure cartData is always an object, not an array
-    let cartData = userData.cartData || {};
-
-    // If cartData is an array (legacy data), convert it to object format
-    if (Array.isArray(cartData)) {
-      cartData = {};
-      // You might need additional logic here to convert array to object format
+    const token = req.headers.token;
+    if (!token) {
+      return res.status(401).json({ success: false, message: "Token missing" });
     }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET); // Replace with your actual secret
+    const userId = decoded.id;
+
+    const userData = await userModel.findById(userId);
+    if (!userData) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    let cartData = userData.cartData || {};
+    if (Array.isArray(cartData)) cartData = {}; // Prevent legacy format issues
 
     res.json({ success: true, cartData });
   } catch (error) {
     console.log(error);
-    res.json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
