@@ -148,21 +148,50 @@ const updateCart = async (req, res) => {
 const getUserCart = async (req, res) => {
   try {
     const { userId } = req.body;
-    const userData = await userModel.findById(userId);
-
-    // Ensure cartData is always an object, not an array
-    let cartData = userData.cartData || {};
-
-    // If cartData is an array (legacy data), convert it to object format
-    if (Array.isArray(cartData)) {
-      cartData = {};
-      // You might need additional logic here to convert array to object format
+    
+    if (!userId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "User ID is required" 
+      });
     }
 
-    res.json({ success: true, cartData });
+    const userData = await userModel.findById(userId);
+    if (!userData) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "User not found" 
+      });
+    }
+
+    // Normalize cartData format
+    let cartData = {};
+    if (userData.cartData) {
+      if (Array.isArray(userData.cartData)) {
+        // Convert legacy array format to object
+        userData.cartData.forEach(item => {
+          if (item._id) {
+            cartData[item._id] = {
+              quantity: item.quantity,
+              variations: item.variations || null
+            };
+          }
+        });
+      } else {
+        cartData = userData.cartData;
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      cartData 
+    });
   } catch (error) {
-    console.log(error);
-    res.json({ success: false, message: error.message });
+    console.error("Error in getUserCart:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Internal server error" 
+    });
   }
 };
 
