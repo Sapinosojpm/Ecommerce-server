@@ -1,5 +1,5 @@
 import userModel from "../models/userModel.js";
-
+import jwt from "jsonwebtoken";
 // add products to user cart
 const addToCart = async (req, res) => {
   try {
