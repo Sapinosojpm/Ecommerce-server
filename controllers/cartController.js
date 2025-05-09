@@ -81,6 +81,7 @@ const addToCart = async (req, res) => {
 };
 
 // update user cart
+// In cartController.js
 const updateCart = async (req, res) => {
   try {
     const { userId, itemId, quantity } = req.body;
@@ -91,8 +92,6 @@ const updateCart = async (req, res) => {
         .json({ success: false, message: "Missing required fields" });
     }
 
-    console.log("🟡 Received updateCart request:", req.body);
-
     const userData = await userModel.findById(userId);
     if (!userData) {
       return res
@@ -100,41 +99,35 @@ const updateCart = async (req, res) => {
         .json({ success: false, message: "User not found" });
     }
 
-    let cartData = userData.cartData || {}; // Ensure cartData exists
-
-    // If cartData is an array, reset it to an empty object
-    if (Array.isArray(cartData)) {
-      console.log("⚠️ cartData is an array! Resetting it to an object...");
-      cartData = {};
-    }
-
-    console.log("🟢 Existing cart data before update:", cartData);
+    let cartData = userData.cartData || {};
 
     if (quantity > 0) {
-      // Preserve variations if they exist when updating quantity
       if (cartData[itemId]) {
         cartData[itemId] = {
           quantity,
           variations: cartData[itemId].variations || null,
         };
       } else {
-        // If item doesn't exist, add it with default quantity and no variations
         cartData[itemId] = {
           quantity,
           variations: null,
         };
       }
     } else {
-      // Remove item if quantity is 0
       delete cartData[itemId];
     }
 
-    // Update the cartData in the database
     await userModel.findByIdAndUpdate(
       userId,
       { $set: { cartData } },
       { new: true }
     );
+
+    // Emit cart update event
+    const io = req.app.get('socketio');
+    if (io) {
+      io.to(`cart-${userId}`).emit('cart-updated', cartData);
+    }
 
     res.json({ success: true, message: "Cart updated", cartData });
   } catch (error) {
