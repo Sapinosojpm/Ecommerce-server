@@ -215,5 +215,62 @@ const clearCart = async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to clear cart." });
   }
 };
+// Remove specific item from cart
+const removeFromCart = async (req, res) => {
+  try {
+    const { userId, itemId } = req.body;
 
-export { addToCart, updateCart, getUserCart, clearCart };
+    if (!userId || !itemId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID and Item ID are required"
+      });
+    }
+
+    const userData = await userModel.findById(userId);
+    if (!userData) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    let cartData = userData.cartData || {};
+    
+    // Check if we're dealing with variation-based keys
+    const itemKeys = Object.keys(cartData).filter(key => 
+      key.startsWith(itemId) // Include both base item and variations
+    );
+
+    if (itemKeys.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Item not found in cart"
+      });
+    }
+
+    // Remove all variations of this item
+    itemKeys.forEach(key => {
+      delete cartData[key];
+    });
+
+    await userModel.findByIdAndUpdate(
+      userId,
+      { $set: { cartData } },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: "Item removed from cart",
+      cartData
+    });
+  } catch (error) {
+    console.error("Error removing item from cart:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to remove item from cart"
+    });
+  }
+};
+export { addToCart, updateCart, getUserCart, clearCart,removeFromCart };

@@ -1,7 +1,6 @@
 import express from 'express';
-import { addToCart,getUserCart,updateCart,clearCart } from '../controllers/cartController.js';
+import { addToCart, getUserCart, updateCart, clearCart, removeFromCart } from '../controllers/cartController.js';
 import authUser from '../middleware/auth.js';
-
 
 const cartRouter = express.Router();
 
@@ -20,10 +19,14 @@ cartRouter.post('/update', authUser, (req, res, next) => {
     next();
 }, updateCart);
 
+cartRouter.post('/remove', authUser, (req, res, next) => {
+    console.log("🚀 REMOVE ITEM route hit");
+    next();
+}, removeFromCart);
+
 cartRouter.delete('/clear', authUser, (req, res, next) => {
     console.log("🚀 CLEAR CART route hit");
     next();
 }, clearCart);
-
 
 export default cartRouter;
