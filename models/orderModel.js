@@ -29,7 +29,7 @@ const orderSchema = new mongoose.Schema({
       'Delivered',
       'Cancelled'
     ],
-    default: 'Pending'
+    default: 'Order Placed'
   },
    statusHistory: [{
     status: String,
