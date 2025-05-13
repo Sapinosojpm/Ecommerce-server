@@ -1,4 +1,3 @@
-// controllers/ProductReview.js
 import Review from "../models/ProductReview.js";
 import User from "../models/userModel.js";
 import Product from "../models/productModel.js";
@@ -15,29 +14,32 @@ export const addReview = async (req, res) => {
   try {
     // Verify user has purchased and received this product
     const hasPurchased = await Order.exists({
-  userId,
-  "items.productId": productId,
-  status: { $regex: /delivered/i } // More flexible matching
-});
+      userId,
+      "items.productId": productId,
+      status: { $regex: /delivered/i }
+    });
 
     console.log("Checking review eligibility for:", {
-  userId,
-  productId,
-  hasPurchased: !!hasPurchased,
-  hasReviewed: !!hasReviewed
-});
+      userId,
+      productId,
+      hasPurchased: !!hasPurchased,
+    });
 
     if (!hasPurchased) {
       return res.status(403).json({ 
-        message: "You can only review products you've purchased and received" 
+        message: "You can only review products you've purchased and received", 
+        hasReviewed: false 
       });
     }
 
     // Check if user already reviewed this product
     const existingReview = await Review.findOne({ productId, userId });
-    if (existingReview) {
+    const hasReviewed = !!existingReview;
+
+    if (hasReviewed) {
       return res.status(400).json({ 
-        message: "You've already reviewed this product" 
+        message: "You've already reviewed this product", 
+        hasReviewed: true 
       });
     }
 
@@ -55,7 +57,7 @@ export const addReview = async (req, res) => {
     });
 
     await newReview.save();
-    
+
     // Update product rating stats
     const product = await Product.findById(productId);
     if (product) {
@@ -64,7 +66,8 @@ export const addReview = async (req, res) => {
 
     res.status(201).json({ 
       message: "Review added successfully!", 
-      review: newReview 
+      review: newReview,
+      hasReviewed: true 
     });
   } catch (error) {
     console.error("Error adding review:", error);
@@ -82,8 +85,8 @@ export const getReviewsByProduct = async (req, res) => {
   try {
     const reviews = await Review.find({ productId })
       .populate("userId", "firstName lastName")
-      .sort({ date: -1 }); // Newest first
-      
+      .sort({ date: -1 });
+
     res.status(200).json(reviews);
   } catch (error) {
     res.status(500).json({ 
@@ -96,25 +99,23 @@ export const getReviewsByProduct = async (req, res) => {
 // Delete a review
 export const deleteReview = async (req, res) => {
   const { reviewId } = req.params;
-  const { userId } = req.body; // Require user ID for authorization
+  const { userId } = req.body;
 
   try {
     const review = await Review.findById(reviewId);
-    
+
     if (!review) {
       return res.status(404).json({ message: "Review not found" });
     }
 
-    // Only allow review owner or admin to delete
-    if (review.userId.toString() !== userId && req.user.role !== "admin") {
+    if (review.userId.toString() !== userId && req.user?.role !== "admin") {
       return res.status(403).json({ 
         message: "Not authorized to delete this review" 
       });
     }
 
     await Review.findByIdAndDelete(reviewId);
-    
-    // Update product rating stats
+
     const product = await Product.findById(review.productId);
     if (product) {
       await product.updateRatingStats();
@@ -135,17 +136,10 @@ export const canReviewProduct = async (req, res) => {
 
   try {
     const hasPurchased = await Order.exists({
-  userId,
-  "items.productId": productId,
-  status: { $regex: /delivered/i } // Consistent with addReview
-});
-
-    console.log("Checking review eligibility for:", {
-  userId,
-  productId,
-  hasPurchased: !!hasPurchased,
-  hasReviewed: !!hasReviewed
-});
+      userId,
+      "items.productId": productId,
+      status: { $regex: /delivered/i }
+    });
 
     const hasReviewed = await Review.exists({ productId, userId });
 
