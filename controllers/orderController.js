@@ -659,7 +659,7 @@ const uploadReceipt = async (req, res) => {
         mimetype: req.file.mimetype
       },
       orderNumber: generateOrderNumber(),
-      status: 'order placed' // Ensure status is set
+      status: 'Order Placed' // Ensure status is set
     });
 
     // Save the order
