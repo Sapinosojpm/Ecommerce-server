@@ -5,7 +5,7 @@ import {
   deleteReview,
   canReviewProduct
 } from '../controllers/ProductReview.js';
-import userAuth from '../middleware/userAuth.js';
+import userAuth from '../middleware/adminAuth.js';
 
 const router = express.Router();
 
