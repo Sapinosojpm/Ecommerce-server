@@ -15,10 +15,17 @@ export const addReview = async (req, res) => {
   try {
     // Verify user has purchased and received this product
     const hasPurchased = await Order.exists({
-      userId,
-      "items.productId": productId,
-      status: "Delivered"
-    });
+  userId,
+  "items.productId": productId,
+  status: { $regex: /delivered/i } // More flexible matching
+});
+
+    console.log("Checking review eligibility for:", {
+  userId,
+  productId,
+  hasPurchased: !!hasPurchased,
+  hasReviewed: !!hasReviewed
+});
 
     if (!hasPurchased) {
       return res.status(403).json({ 
@@ -128,10 +135,17 @@ export const canReviewProduct = async (req, res) => {
 
   try {
     const hasPurchased = await Order.exists({
-      userId,
-      "items.productId": productId,
-      status: "Delivered"
-    });
+  userId,
+  "items.productId": productId,
+  status: { $regex: /delivered/i } // Consistent with addReview
+});
+
+    console.log("Checking review eligibility for:", {
+  userId,
+  productId,
+  hasPurchased: !!hasPurchased,
+  hasReviewed: !!hasReviewed
+});
 
     const hasReviewed = await Review.exists({ productId, userId });
 
