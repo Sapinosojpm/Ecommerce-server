@@ -765,16 +765,23 @@ export const getReceipt = async (req, res) => {
 export const confirmPayment = async (req, res) => {
   try {
     const { orderId } = req.body;
-    const order = await orderModel.findById(orderId);
 
-    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
-
-    if (order.status === "confirmed") {
-      return res.status(400).json({ success: false, message: "Payment is already confirmed" });
+    if (!orderId) {
+      return res.status(400).json({ success: false, message: "Missing order ID" });
     }
 
-    order.status = "confirmed";
-    order.payment = true; // Mark as paid
+    const order = await orderModel.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    if (order.status === "confirmed" || order.payment === true) {
+      return res.status(400).json({ success: false, message: "Payment already confirmed" });
+    }
+
+    order.status = "Order Placed";
+    order.payment = true;
     await order.save();
 
     res.json({ success: true, message: "Payment confirmed successfully" });
