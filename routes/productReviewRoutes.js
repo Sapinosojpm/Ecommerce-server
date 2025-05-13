@@ -9,9 +9,10 @@ import authUser from '../middleware/auth.js';
 
 const router = express.Router();
 
+// Correct order: static and specific routes first
 router.post('/add', authUser, addReview);
-router.get('/:productId', getReviewsByProduct);
-router.delete('/:reviewId', authUser, deleteReview);
 router.get('/can-review/:productId/:userId', authUser, canReviewProduct);
+router.delete('/:reviewId', authUser, deleteReview);
+router.get('/:productId', getReviewsByProduct); // dynamic route LAST
 
 export default router;
