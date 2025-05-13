@@ -5,7 +5,7 @@ import About from '../models/aboutModel.js'; // Ensure the model is correctly im
 export const getAboutData = async (req, res) => {
   try {
     // For testing, set this to the correct URL
-    const backendUrl = 'http://localhost:4000';
+    const backendUrl = import.meta.env.VITE_BACKEND_URL;
 
     const aboutData = await About.findOne({});
     if (aboutData && aboutData.image) {
