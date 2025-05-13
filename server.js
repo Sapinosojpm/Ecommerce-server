@@ -515,35 +515,14 @@ async function setupChangeStreams() {
   // Watch orders collection
   const ordersCollection = db.collection('orders');
   const orderChangeStream = ordersCollection.watch();
-   // Watch users collection for cart updates
+  
+  // Watch users collection for cart updates
   const usersCollection = db.collection('users');
   const userChangeStream = usersCollection.watch();
-  // In server.js - productChangeStream handler
-productChangeStream.on('change', async (change) => {
-  try {
-    if (!change.documentKey || !change.documentKey._id) return;
-
-    const productId = change.documentKey._id.toString();
-    
-    if (change.operationType === 'update') {
-      const updatedFields = change.updateDescription?.updatedFields || {};
-      const updatedProduct = await productsCollection.findOne({ _id: change.documentKey._id });
-      
-      // Emit to all clients interested in this product
-      io.to(`product_${productId}`).emit('productUpdated', updatedProduct);
-      
-      // Also emit to admin room for dashboard updates
-      io.to('admin-room').emit('productInventoryUpdated', {
-        productId,
-        updatedFields
-      });
-      
-      console.log(`Product update sent for ${productId}`);
-    }
-  } catch (error) {
-    console.error("Error processing product change stream:", error);
-  }
-});
+  
+  // Watch products collection for inventory updates
+  const productsCollection = db.collection('products');
+  const productChangeStream = productsCollection.watch();
 
   orderChangeStream.on('change', async (change) => {
     try {
@@ -581,9 +560,19 @@ productChangeStream.on('change', async (change) => {
     }
   });
 
-  // Watch products collection for inventory updates
-  const productsCollection = db.collection('products');
-  const productChangeStream = productsCollection.watch();
+  userChangeStream.on('change', async (change) => {
+    try {
+      if (!change.documentKey || !change.documentKey._id) return;
+      
+      const userId = change.documentKey._id.toString();
+      
+      if (change.operationType === 'update' && change.updateDescription?.updatedFields?.cart) {
+        io.to(userId).emit('cartUpdated', change.updateDescription.updatedFields.cart);
+      }
+    } catch (error) {
+      console.error("Error processing user change stream:", error);
+    }
+  });
 
   productChangeStream.on('change', async (change) => {
     try {
@@ -594,16 +583,17 @@ productChangeStream.on('change', async (change) => {
       if (change.operationType === 'update') {
         const updatedFields = change.updateDescription?.updatedFields || {};
         const updatedProduct = await productsCollection.findOne({ _id: change.documentKey._id });
-  
-        if (updatedProduct) {
-          io.to(`product_${productId}`).emit('productUpdated', updatedProduct);
-          
-          if ('quantity' in updatedFields || 
-              'variations' in updatedFields ||
-              Object.keys(updatedFields).some(field => field.startsWith('variations.'))) {
-            console.log(`Product inventory update sent for product ${productId}`);
-          }
-        }
+        
+        // Emit to all clients interested in this product
+        io.to(`product_${productId}`).emit('productUpdated', updatedProduct);
+        
+        // Also emit to admin room for dashboard updates
+        io.to('admin-room').emit('productInventoryUpdated', {
+          productId,
+          updatedFields
+        });
+        
+        console.log(`Product update sent for ${productId}`);
       }
     } catch (error) {
       console.error("Error processing product change stream:", error);
