@@ -419,7 +419,7 @@ const verifyStripe = async (req, res) => {
 
       // Mark payment
       order.payment = true;
-      order.status = "paid";
+      order.status = "order placed";
       await order.save();
 
       // Clear user cart
