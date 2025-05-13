@@ -14,11 +14,11 @@ export const addReview = async (req, res) => {
 
   try {
     // Verify user has purchased and received this product
-   const hasPurchased = await Order.exists({
-  userId,
-  "items.productId": productId,
-  status: { $regex: /^delivered$/i }
-});
+    const hasPurchased = await Order.exists({
+      userId,
+      "items.productId": productId,
+      status: "Delivered"
+    });
 
     if (!hasPurchased) {
       return res.status(403).json({ 
