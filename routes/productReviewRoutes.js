@@ -5,13 +5,13 @@ import {
   deleteReview,
   canReviewProduct
 } from '../controllers/ProductReview.js';
-import authUser from '../middleware/admin.js';
+import adminAuth from '../middleware/adminAuth.js';
 
 const router = express.Router();
 
-router.post('/add', authUser, addReview);
+router.post('/add', adminAuth, addReview);
 router.get('/:productId', getReviewsByProduct);
-router.delete('/:reviewId', authUser, deleteReview);
-router.get('/can-review/:productId/:userId', authUser, canReviewProduct);
+router.delete('/:reviewId', adminAuth, deleteReview);
+router.get('/can-review/:productId/:userId', adminAuth, canReviewProduct);
 
 export default router;
