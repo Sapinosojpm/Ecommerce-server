@@ -18,11 +18,26 @@ const orderSchema = new mongoose.Schema({
     path: String, // Path to the file
     mimetype: String, // Image type
   },
-  status: {
+   status: {
     type: String,
-    enum: ['order placed', 'packing', 'shipped','out for delivery', 'delivered', 'cancelled', 'confirmed'],
-    default: 'order placed'
+    enum: [
+      'Pending', 
+      'Processing', 
+      'Shipped', 
+      'Out for Delivery', 
+      'Delivered',
+      'Cancelled'
+    ],
+    default: 'Pending'
   },
+   statusHistory: [{
+    status: String,
+    changedAt: {
+      type: Date,
+      default: Date.now
+    },
+    notes: String
+  }],
   orderNumber: {
     type: String,
     unique: true

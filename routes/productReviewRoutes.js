@@ -1,11 +1,17 @@
-// routes/productReviewRoutes.js
 import express from 'express';
-import { addReview, getReviewsByProduct, deleteReview } from '../controllers/ProductReview.js';
+import { 
+  addReview, 
+  getReviewsByProduct, 
+  deleteReview,
+  canReviewProduct
+} from '../controllers/ProductReview.js';
+import userAuth from '../middleware/userAuth.js';
 
 const router = express.Router();
 
-router.post('/add', addReview); // Add a review
-router.get('/:productId', getReviewsByProduct); // Get reviews for a product
-router.delete('/:reviewId', deleteReview); // Delete a review
+router.post('/add', userAuth, addReview);
+router.get('/:productId', getReviewsByProduct);
+router.delete('/:reviewId', userAuth, deleteReview);
+router.get('/can-review/:productId/:userId', userAuth, canReviewProduct);
 
 export default router;
