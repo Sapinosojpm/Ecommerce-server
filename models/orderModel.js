@@ -50,3 +50,25 @@ const orderSchema = new mongoose.Schema({
 
 const orderModel = mongoose.models.order || mongoose.model("order", orderSchema);
 export default orderModel;
+
+
+
+//   // In orderModel.js, update the items array schema:
+// items: [{
+//   productId: { type: mongoose.Schema.Types.ObjectId, ref: "product", required: true },
+//   name: { type: String, required: true },
+//   price: { type: Number, required: true },
+//   quantity: { type: Number, required: true },
+//   image: { type: String, required: true },
+//   variationId: { type: mongoose.Schema.Types.ObjectId },
+//   variationDetails: [{
+//     variationName: String,
+//     optionName: String,
+//     priceAdjustment: Number
+//   }],
+//   returnStatus: { 
+//     type: String, 
+//     enum: ['none', 'pending', 'approved', 'rejected', 'refunded'],
+//     default: 'none'
+//   }
+// }]

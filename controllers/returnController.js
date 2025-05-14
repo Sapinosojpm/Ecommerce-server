@@ -12,54 +12,40 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 export const checkReturnEligibility = async (req, res) => {
   try {
     const { orderId, itemId } = req.query;
-    const userId = req.userId;
 
-    // 1) Order must exist & belong to this user
-    const order = await orderModel.findOne({ _id: orderId, userId });
+    if (!orderId || !itemId) {
+      return res.status(400).json({ message: 'Missing orderId or itemId' });
+    }
+
+    const order = await orderModel.findById(orderId);
+
     if (!order) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Order not found or doesn't belong to you" 
-      });
+      return res.status(404).json({ message: 'Order not found' });
     }
 
-    // 2) Item must exist
-    const item = order.items.find(i => i._id.toString() === itemId);
+    // Ensure the item exists in the order
+    const item = order.items.find(i => i.productId?.toString() === itemId || i._id?.toString() === itemId);
+
     if (!item) {
-      return res.status(404).json({
-        success: false,
-        message: "Item not found in that order"
-      });
+      return res.status(404).json({ message: 'Item not found in order' });
     }
 
-    // 3) Not already returned
-    const already = await Return.findOne({ orderId, itemId });
-    if (already) {
-      return res.status(400).json({
-        success: false,
-        message: "You’ve already requested a return for this item"
-      });
+    // Check if already returned
+    if (item.returnStatus && item.returnStatus !== 'none') {
+      return res.status(400).json({ message: 'Item has already been returned or is being processed.' });
     }
 
-    // 4) Within 7-day window from deliveredDate (or order.updatedAt)
-    const deliveredAt = order.deliveredDate || order.updatedAt || order.date;
-    const deadline = new Date(deliveredAt);
-    deadline.setDate(deadline.getDate() + 7);
-    if (new Date() > deadline) {
-      return res.status(400).json({
-        success: false,
-        message: "Return window has expired (7 days from delivery)"
-      });
+    // Check order status
+    if (order.status !== 'Delivered' && order.status !== 'delivered') {
+      return res.status(400).json({ message: 'Item is not eligible for return. Order not delivered yet.' });
     }
 
-    // ✅ All good:
-    res.json({ success: true, eligible: true });
-  } catch (err) {
-    console.error("checkReturnEligibility:", err);
-    res.status(500).json({
-      success: false,
-      message: "Server error checking eligibility"
-    });
+    // You can add more rules here (like return within 7 days, etc.)
+
+    res.status(200).json({ eligible: true });
+  } catch (error) {
+    console.error('Error checking return eligibility:', error);
+    res.status(500).json({ message: 'Server error checking return eligibility' });
   }
 };
 
