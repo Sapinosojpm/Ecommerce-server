@@ -350,7 +350,7 @@ const verifyGCashPayment = async (req, res) => {
 
       // ✅ Mark Order as Paid
       order.payment = true;
-      order.status = "order placed"; // Update status to "ordered"
+      order.status = "Order Placed"; // Update status to "ordered"
       await order.save();
       console.log(`✅ Order ${order._id} marked as Paid.`);
 
