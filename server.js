@@ -77,6 +77,7 @@ import {
   getRouterRtpCapabilities,
   cleanupSocketResources
 } from './mediasoupSetup.js';
+import returnRouter from './routes/returnRoute.js';
 
 dotenv.config();
 
@@ -605,6 +606,7 @@ async function setupChangeStreams() {
 setupChangeStreams().catch(console.error);
 
 // Use routes
+app.use('/api/returns', returnRouter);
 app.use('/api/livestream', liveStreamRoutes); 
 app.use('/api/live-selling', liveSellingRoutes);
 app.use('/api/otp', otpRoutes);
