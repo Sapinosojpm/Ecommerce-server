@@ -17,16 +17,12 @@ const returnRouter = express.Router();
 // User routes
 returnRouter.post('/', authUser, createReturn);
 returnRouter.get('/user', authUser, getUserReturns);
+returnRouter.get('/check-eligibility', authUser, checkReturnEligibility);
 returnRouter.get('/:id', authUser, getReturnDetails);
 returnRouter.post('/:id/evidence', authUser, upload.single('evidence'), uploadReturnEvidence);
 
 // Admin routes
 returnRouter.post('/:id/process', adminAuth, processReturn);
 returnRouter.post('/:id/refund', adminAuth, processRefund);
-returnRouter.get(
-  "/check-eligibility",
-  authUser,
-  checkReturnEligibility
-);
 
 export default returnRouter;
