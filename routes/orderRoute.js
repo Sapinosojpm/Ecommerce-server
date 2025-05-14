@@ -8,11 +8,7 @@ import {
   verifyStripe, 
   cancelOrder,
   uploadReceipt,
-  getReceipt, 
-  confirmPayment,
-  getOrderForPayment,
-  processPayment,
-  verifyPayment
+  getReceipt, confirmPayment
 } from '../controllers/orderController.js';
 import adminAuth from '../middleware/adminAuth.js';
 import authUser from '../middleware/auth.js';
@@ -38,11 +34,4 @@ orderRouter.delete('/cancel/:id', authUser, cancelOrder);
 orderRouter.post('/verifyStripe', authUser, verifyStripe);
 orderRouter.get("/receipt/:orderId", getReceipt);
 orderRouter.post("/confirm-payment", confirmPayment);
-
-// Pay Now routes
-orderRouter.get('/:id/payment', authUser, getOrderForPayment);
-orderRouter.post('/:id/pay', authUser, processPayment);
-orderRouter.post('/:id/verify-payment', authUser, verifyPayment);
-
-
 export default orderRouter;
