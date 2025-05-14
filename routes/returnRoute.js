@@ -5,7 +5,8 @@ import {
   processRefund,
   getUserReturns,
   getReturnDetails,
-  uploadReturnEvidence
+  uploadReturnEvidence,
+  checkReturnEligibility
 } from '../controllers/returnController.js';
 import adminAuth from '../middleware/adminAuth.js';
 import authUser from '../middleware/auth.js';
@@ -22,5 +23,10 @@ returnRouter.post('/:id/evidence', authUser, upload.single('evidence'), uploadRe
 // Admin routes
 returnRouter.post('/:id/process', adminAuth, processReturn);
 returnRouter.post('/:id/refund', adminAuth, processRefund);
+returnRouter.get(
+  "/check-eligibility",
+  authUser,
+  checkReturnEligibility
+);
 
 export default returnRouter;

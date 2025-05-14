@@ -3,7 +3,25 @@ import mongoose from "mongoose";
 // Adjust userId to use ObjectId to reference the user model
 const orderSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "user", required: false },
-  items: { type: Array, required: true },
+  // In orderModel.js, update the items array schema:
+items: [{
+  productId: { type: mongoose.Schema.Types.ObjectId, ref: "product", required: true },
+  name: { type: String, required: true },
+  price: { type: Number, required: true },
+  quantity: { type: Number, required: true },
+  image: { type: String, required: true },
+  variationId: { type: mongoose.Schema.Types.ObjectId },
+  variationDetails: [{
+    variationName: String,
+    optionName: String,
+    priceAdjustment: Number
+  }],
+  returnStatus: { 
+    type: String, 
+    enum: ['none', 'pending', 'approved', 'rejected', 'refunded'],
+    default: 'none'
+  }
+}],
   amount: { type: Number, required: true },
   address: { type: Object, required: true },
   // status: { type: String, required: true, default: "Order Placed" },
