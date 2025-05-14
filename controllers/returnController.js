@@ -1,3 +1,4 @@
+import mongoose from "mongoose"; 
 import Return from "../models/returnModel.js";
 import orderModel from "../models/orderModel.js";
 import productModel from "../models/productModel.js";
@@ -47,51 +48,79 @@ export const checkReturnEligibility = async (req, res) => {
 export const createReturn = async (req, res) => {
   try {
     const { orderId, itemId, reason, description } = req.body;
-    const userId = req.userId;
+   const userId = req.userId || req.body.userId;  // Use req.body.userId as a fallback
 
-    const order = await orderModel.findOne({ _id: orderId, userId });
-    if (!order) {
-      return res.status(404).json({ success: false, message: "Order not found or doesn't belong to user" });
+console.log("Order Query:", { orderId, userId }); // Debug log
+    // Validation
+    if (!orderId || !itemId || !reason || !description) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
-    const item = order.items.find(item => item._id.toString() === itemId);
+    if (!mongoose.Types.ObjectId.isValid(orderId) || !mongoose.Types.ObjectId.isValid(itemId)) {
+      return res.status(400).json({ success: false, message: "Invalid orderId or itemId" });
+    }
+
+    // Find order
+    const order = await orderModel.findOne({ _id: orderId, userId });
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found or not owned by user" });
+    }
+
+    // Find item
+    const item = order.items.find(i => i._id.toString() === itemId);
     if (!item) {
       return res.status(404).json({ success: false, message: "Item not found in order" });
     }
 
+    // Prevent duplicate return
     const existingReturn = await Return.findOne({ orderId, itemId });
     if (existingReturn) {
       return res.status(400).json({ success: false, message: "Return already requested for this item" });
     }
 
+    // Check return window
     const deliveryDate = new Date(order.updatedAt);
     const returnDeadline = new Date(deliveryDate);
     returnDeadline.setDate(returnDeadline.getDate() + 7);
-
     if (new Date() > returnDeadline) {
-      return res.status(400).json({ success: false, message: "Return window has expired (7 days from delivery)" });
+      return res.status(400).json({ success: false, message: "Return window expired (7 days from delivery)" });
     }
 
+    // Handle file upload (if using multer)
+    const images = req.files?.map(file => ({
+      filename: file.filename,
+      path: file.path,
+      mimetype: file.mimetype
+    })) || [];
+
+    // Create return record
     const newReturn = new Return({
       orderId,
       userId,
       itemId,
       reason,
       description,
+      images,
       status: 'pending',
       refundAmount: item.price * item.quantity,
+      refundMethod: 'none',
       statusHistory: [{
         status: 'pending',
-        notes: 'Return request submitted'
+        notes: 'Return request submitted',
+        changedBy: userId
       }]
     });
 
     await newReturn.save();
 
+    // Update order's item return status
     const itemIndex = order.items.findIndex(i => i._id.toString() === itemId);
-    order.items[itemIndex].returnStatus = 'pending';
-    await order.save();
+    if (itemIndex !== -1) {
+      order.items[itemIndex].returnStatus = 'pending';
+      await order.save();
+    }
 
+    // Emit real-time update to admin
     io.to('admin_room').emit('newReturnRequest', newReturn);
 
     res.status(201).json({
@@ -101,8 +130,8 @@ export const createReturn = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Error creating return:", error);
-    res.status(500).json({ success: false, message: "Failed to create return request" });
+    console.error("Error in createReturn:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 

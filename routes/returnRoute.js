@@ -19,7 +19,7 @@ returnRouter.post('/', authUser, createReturn);
 returnRouter.get('/user', authUser, getUserReturns);
 returnRouter.get('/check-eligibility', authUser, checkReturnEligibility);
 returnRouter.get('/:id', authUser, getReturnDetails);
-returnRouter.post('/:id/evidence', authUser, upload.single('evidence'), uploadReturnEvidence);
+returnRouter.post('/create-return', authUser, upload.array('images'), createReturn);
 
 // Admin routes
 returnRouter.post('/:id/process', adminAuth, processReturn);
