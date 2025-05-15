@@ -15,31 +15,72 @@ export const checkReturnEligibility = async (req, res) => {
     const { orderId, itemId } = req.query;
 
     if (!orderId || !itemId) {
-      return res.status(400).json({ message: 'Missing orderId or itemId' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'Missing orderId or itemId' 
+      });
     }
 
     const order = await orderModel.findById(orderId);
     if (!order) {
-      return res.status(404).json({ message: 'Order not found' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'Order not found' 
+      });
     }
 
-    const item = order.items.find(i => i.productId?.toString() === itemId || i._id?.toString() === itemId);
+    const item = order.items.find(i => 
+      i._id?.toString() === itemId || i.productId?.toString() === itemId
+    );
+    
     if (!item) {
-      return res.status(404).json({ message: 'Item not found in order' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'Item not found in order' 
+      });
     }
 
     if (item.returnStatus && item.returnStatus !== 'none') {
-      return res.status(400).json({ message: 'Item has already been returned or is being processed.' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'Item has already been returned or is being processed.' 
+      });
     }
 
     if (order.status.toLowerCase() !== 'delivered') {
-      return res.status(400).json({ message: 'Item is not eligible for return. Order not delivered yet.' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'Item is not eligible for return. Order not delivered yet.' 
+      });
     }
 
-    res.status(200).json({ eligible: true });
+    // Check return window (7 days from delivery)
+    const deliveryDate = order.updatedAt || order.createdAt;
+    const returnDeadline = new Date(deliveryDate);
+    returnDeadline.setDate(returnDeadline.getDate() + 7);
+    
+    if (new Date() > returnDeadline) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Return window expired (7 days from delivery)' 
+      });
+    }
+
+    res.status(200).json({ 
+      success: true,
+      eligible: true,
+      orderDetails: {
+        items: order.items,
+        orderDate: order.createdAt,
+        status: order.status
+      }
+    });
   } catch (error) {
     console.error('Error checking return eligibility:', error);
-    res.status(500).json({ message: 'Server error checking return eligibility' });
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error checking return eligibility' 
+    });
   }
 };
 
