@@ -47,7 +47,7 @@ export const checkReturnEligibility = async (req, res) => {
       });
     }
 
-    if (order.status.toLowerCase() !== 'delivered') {
+    if (order.status.toLowerCase() !== 'Delivered') {
       return res.status(400).json({ 
         success: false,
         message: 'Item is not eligible for return. Order not delivered yet.' 
