@@ -43,25 +43,6 @@ const orderSchema = new mongoose.Schema({
     type: String,
     unique: true
   },
-
-shippingProvider: {
-    type: String,
-    enum: ['J&T', 'LBC', 'Grab', 'Lalamove', 'SelfPickup'],
-    default: 'J&T'
-  },
-  jtTrackingNumber: String,
-  jtWaybillNumber: String,
-  shippingStatus: {
-    type: String,
-    enum: ['pending', 'pickup_scheduled', 'in_transit', 'out_for_delivery', 'delivered', 'failed'],
-    default: 'pending'
-  },
-  shippingHistory: [{
-    status: String,
-    location: String,
-    timestamp: Date,
-    notes: String
-  }]
 }, { 
   timestamps: true 
 });

@@ -202,20 +202,6 @@ const placeOrder = async (req, res) => {
     const newOrder = new orderModel(orderData);
     await newOrder.save({ session });
 
-    // Create J&T shipment after order is saved
-    try {
-      const jtResponse = await createJTOrder(orderData);
-      newOrder.jtTrackingNumber = jtResponse.tracking_number;
-      newOrder.jtWaybillNumber = jtResponse.waybill_number;
-      newOrder.shippingStatus = 'pickup_scheduled';
-      await newOrder.save({ session });
-      
-      console.log('J&T Order Created:', jtResponse);
-    } catch (jtError) {
-      console.error('J&T Integration Failed:', jtError);
-      // Don't fail the order if J&T fails, just log it
-    }
-
     await userModel.findByIdAndUpdate(userId, { cartData: {} }, { session });
 
     if (voucherCode) {
@@ -319,42 +305,6 @@ const placeOrderStripe = async (req, res) => {
   } catch (error) {
     console.error("Stripe payment error:", error);
     res.json({ success: false, message: error.message });
-  }
-};
-
-// orderController.js
-export const updateShippingStatus = async (req, res) => {
-  try {
-    const { orderId, status, location, notes } = req.body;
-    
-    const order = await orderModel.findById(orderId);
-    if (!order) {
-      return res.status(404).json({ success: false, message: "Order not found." });
-    }
-
-    order.shippingStatus = status;
-    order.shippingHistory.push({
-      status,
-      location,
-      notes,
-      timestamp: new Date()
-    });
-
-    await order.save();
-
-    // Notify user via WebSocket if status changed significantly
-    if (['out_for_delivery', 'delivered', 'failed'].includes(status)) {
-      io.to(order.userId.toString()).emit('shippingUpdate', {
-        orderId: order._id,
-        status,
-        trackingNumber: order.jtTrackingNumber
-      });
-    }
-
-    return res.json({ success: true, message: "Shipping status updated." });
-  } catch (error) {
-    console.error("Error updating shipping status:", error);
-    return res.status(500).json({ success: false, message: "Error updating shipping status." });
   }
 };
 

@@ -44,5 +44,4 @@ orderRouter.get('/:id/payment', authUser, getOrderForPayment);
 orderRouter.post('/:id/pay', authUser, processPayment);
 orderRouter.post('/:id/verify-payment', authUser, verifyPayment);
 
-
 export default orderRouter;
