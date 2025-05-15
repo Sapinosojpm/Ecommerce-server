@@ -19,10 +19,11 @@ const returnSchema = new mongoose.Schema({
     type: String, 
     required: true,
     enum: [
+      'damaged',
       'defective',
       'wrong_item',
+      'not_as_described',
       'size_issue',
-      'color_issue',
       'changed_mind',
       'other'
     ]
