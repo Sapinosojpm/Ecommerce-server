@@ -1,457 +1,433 @@
-import mongoose from "mongoose"; 
-import Return from "../models/returnModel.js";
-import orderModel from "../models/orderModel.js";
-import productModel from "../models/productModel.js";
-import userModel from "../models/userModel.js";
-import { io } from '../server.js';
-import path from "path";
-import fs from "fs";
-import Stripe from "stripe";
+// returnController.js
+import Order from '../models/orderModel.js';
+import Return from '../models/returnModel.js';
+import User from '../models/userModel.js';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import multer from 'multer';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, '../uploads/returns');
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const extension = path.extname(file.originalname);
+    cb(null, `return-${uniqueSuffix}${extension}`);
+  }
+});
+
+export const upload = multer({ 
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    // Accept only images
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed!'), false);
+    }
+  }
+});
+
+// Check if an item is eligible for return
 export const checkReturnEligibility = async (req, res) => {
   try {
     const { orderId, itemId } = req.query;
+    const userId = req.user.id;
 
-    if (!orderId || !itemId) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Missing orderId or itemId' 
-      });
-    }
-
-    const order = await orderModel.findById(orderId);
+    // Find the order
+    const order = await Order.findOne({ _id: orderId, userId });
+    
     if (!order) {
-      return res.status(404).json({ 
-        success: false,
-        message: 'Order not found' 
+      return res.status(404).json({ eligible: false, message: 'Order not found' });
+    }
+
+    // Check if the order status is "Delivered" (with capital D)
+    if (order.status !== 'Delivered') {
+      return res.status(400).json({ 
+        eligible: false, 
+        message: 'Only delivered orders are eligible for return' 
       });
     }
 
-    const item = order.items.find(i => 
-      i._id?.toString() === itemId || i.productId?.toString() === itemId
-    );
+    // Find the specific item in the order
+    const item = order.items.find(item => item._id.toString() === itemId);
     
     if (!item) {
-      return res.status(404).json({ 
-        success: false,
-        message: 'Item not found in order' 
-      });
+      return res.status(404).json({ eligible: false, message: 'Item not found in order' });
     }
 
+    // Check if the item already has a return request
     if (item.returnStatus && item.returnStatus !== 'none') {
       return res.status(400).json({ 
-        success: false,
-        message: 'Item has already been returned or is being processed.' 
+        eligible: false, 
+        message: `A return request for this item is already ${item.returnStatus}` 
       });
     }
 
-    if (order.status.toLowerCase() !== 'Delivered') {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Item is not eligible for return. Order not delivered yet.' 
-      });
-    }
-
-    // Check return window (7 days from delivery)
-    const deliveryDate = order.updatedAt || order.createdAt;
+    // Check if the return window is still open (e.g., 30 days)
+    const deliveryDate = order.statusHistory.find(history => history.status === 'Delivered')?.changedAt || order.updatedAt;
+    const returnWindow = 30; // 30 days
     const returnDeadline = new Date(deliveryDate);
-    returnDeadline.setDate(returnDeadline.getDate() + 7);
+    returnDeadline.setDate(returnDeadline.getDate() + returnWindow);
     
     if (new Date() > returnDeadline) {
       return res.status(400).json({ 
-        success: false,
-        message: 'Return window expired (7 days from delivery)' 
+        eligible: false, 
+        message: `Return window of ${returnWindow} days has expired` 
       });
     }
 
-    res.status(200).json({ 
-      success: true,
-      eligible: true,
-      orderDetails: {
-        items: order.items,
-        orderDate: order.createdAt,
-        status: order.status
+    // The item is eligible for return
+    const orderDetails = {
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      orderDate: order.createdAt,
+      itemDetails: {
+        id: item._id,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        image: item.image
       }
-    });
+    };
+
+    return res.status(200).json({ eligible: true, orderDetails });
+    
   } catch (error) {
     console.error('Error checking return eligibility:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Server error checking return eligibility' 
+    return res.status(500).json({ 
+      eligible: false, 
+      message: 'Failed to check return eligibility' 
     });
   }
 };
 
-
-// Create return request
+// Create a new return request
 export const createReturn = async (req, res) => {
   try {
     const { orderId, itemId, reason, description } = req.body;
-   const userId = req.userId || req.body.userId;  // Use req.body.userId as a fallback
+    const userId = req.user.id;
 
-console.log("Order Query:", { orderId, userId }); // Debug log
-    // Validation
-    if (!orderId || !itemId || !reason || !description) {
-      return res.status(400).json({ success: false, message: "Missing required fields" });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(orderId) || !mongoose.Types.ObjectId.isValid(itemId)) {
-      return res.status(400).json({ success: false, message: "Invalid orderId or itemId" });
-    }
-
-    // Find order
-    const order = await orderModel.findOne({ _id: orderId, userId });
+    // Find the order
+    const order = await Order.findOne({ _id: orderId, userId });
+    
     if (!order) {
-      return res.status(404).json({ success: false, message: "Order not found or not owned by user" });
+      return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    // Find item
-    const item = order.items.find(i => i._id.toString() === itemId);
-    if (!item) {
-      return res.status(404).json({ success: false, message: "Item not found in order" });
+    // Check if the order status is "Delivered" (with capital D)
+    if (order.status !== 'Delivered') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Only delivered orders are eligible for return' 
+      });
     }
 
-    // Prevent duplicate return
-    const existingReturn = await Return.findOne({ orderId, itemId });
-    if (existingReturn) {
-      return res.status(400).json({ success: false, message: "Return already requested for this item" });
+    // Find the specific item in the order
+    const itemIndex = order.items.findIndex(item => item._id.toString() === itemId);
+    
+    if (itemIndex === -1) {
+      return res.status(404).json({ success: false, message: 'Item not found in order' });
     }
 
-    // Check return window
-    const deliveryDate = new Date(order.updatedAt);
-    const returnDeadline = new Date(deliveryDate);
-    returnDeadline.setDate(returnDeadline.getDate() + 7);
-    if (new Date() > returnDeadline) {
-      return res.status(400).json({ success: false, message: "Return window expired (7 days from delivery)" });
+    // Check if the item already has a return request
+    if (order.items[itemIndex].returnStatus && order.items[itemIndex].returnStatus !== 'none') {
+      return res.status(400).json({ 
+        success: false, 
+        message: `A return request for this item is already ${order.items[itemIndex].returnStatus}` 
+      });
     }
 
-    // Handle file upload (if using multer)
-    const images = req.files?.map(file => ({
-      filename: file.filename,
-      path: file.path,
-      mimetype: file.mimetype
-    })) || [];
-
-    // Create return record
+    // Create the return request
     const newReturn = new Return({
       orderId,
       userId,
       itemId,
       reason,
       description,
-      images,
       status: 'pending',
-      refundAmount: item.price * item.quantity,
-      refundMethod: 'none',
-      statusHistory: [{
-        status: 'pending',
-        notes: 'Return request submitted',
-        changedBy: userId
-      }]
+      statusHistory: [
+        {
+          status: 'pending',
+          notes: 'Return request submitted',
+          changedBy: userId
+        }
+      ]
     });
 
+    // Update the item's return status in the order
+    order.items[itemIndex].returnStatus = 'pending';
+    
+    // Save both documents
     await newReturn.save();
-
-    // Update order's item return status
-    const itemIndex = order.items.findIndex(i => i._id.toString() === itemId);
-    if (itemIndex !== -1) {
-      order.items[itemIndex].returnStatus = 'pending';
-      await order.save();
-    }
-
-    // Emit real-time update to admin
-    io.to('admin_room').emit('newReturnRequest', newReturn);
-
-    res.status(201).json({
-      success: true,
-      message: "Return request submitted successfully",
-      return: newReturn
-    });
-
-  } catch (error) {
-    console.error("Error in createReturn:", error);
-    res.status(500).json({ success: false, message: "Internal server error" });
-  }
-};
-
-
-// Process return (admin only)
-export const processReturn = async (req, res) => {
-  try {
-    const { returnId, action, notes, refundAmount, refundMethod } = req.body;
-    const adminId = req.userId;
-
-    const returnRequest = await Return.findById(returnId);
-    if (!returnRequest) {
-      return res.status(404).json({ success: false, message: "Return request not found" });
-    }
-
-    const order = await orderModel.findById(returnRequest.orderId);
-    const item = order.items.find(i => i._id.toString() === returnRequest.itemId);
-
-    switch (action) {
-      case 'approve':
-        const maxRefund = item.price * item.quantity;
-        if (refundAmount > maxRefund) {
-          return res.status(400).json({
-            success: false,
-            message: `Refund amount cannot exceed original price (₱${maxRefund})`
-          });
-        }
-
-        returnRequest.status = 'approved';
-        returnRequest.refundAmount = refundAmount || maxRefund;
-        returnRequest.refundMethod = refundMethod || 'original_payment';
-        returnRequest.adminNotes = notes;
-
-        const itemIndex = order.items.findIndex(i => i._id.toString() === returnRequest.itemId);
-        order.items[itemIndex].returnStatus = 'approved';
-        await order.save();
-
-        if (item.variationId) {
-          const product = await productModel.findById(item.productId);
-          const variation = product.variations.find(v =>
-            v.options.some(o => o._id.toString() === item.variationId)
-          );
-          if (variation) {
-            const option = variation.options.find(o => o._id.toString() === item.variationId);
-            option.quantity += item.quantity;
-            await product.save();
-          }
-        } else {
-          await productModel.findByIdAndUpdate(item.productId, {
-            $inc: { quantity: item.quantity }
-          });
-        }
-        break;
-
-      case 'reject':
-        returnRequest.status = 'rejected';
-        returnRequest.adminNotes = notes;
-        const rejectIndex = order.items.findIndex(i => i._id.toString() === returnRequest.itemId);
-        order.items[rejectIndex].returnStatus = 'rejected';
-        await order.save();
-        break;
-
-      default:
-        return res.status(400).json({ success: false, message: "Invalid action" });
-    }
-
-    returnRequest.statusHistory.push({
-      status: returnRequest.status,
-      notes: notes || `Return ${action}d by admin`,
-      changedBy: adminId
-    });
-
-    await returnRequest.save();
-    io.to(returnRequest.userId.toString()).emit('returnStatusUpdate', returnRequest);
-
-    res.json({
-      success: true,
-      message: `Return request ${action}d successfully`,
-      return: returnRequest
-    });
-
-  } catch (error) {
-    console.error("Error processing return:", error);
-    res.status(500).json({ success: false, message: "Failed to process return" });
-  }
-};
-
-// Process refund
-export const processRefund = async (req, res) => {
-  try {
-    const { returnId } = req.body;
-    const adminId = req.userId;
-
-    const returnRequest = await Return.findById(returnId);
-    if (!returnRequest) {
-      return res.status(404).json({ success: false, message: "Return request not found" });
-    }
-
-    if (returnRequest.status !== 'approved') {
-      return res.status(400).json({ success: false, message: "Return must be approved before processing refund" });
-    }
-
-    const order = await orderModel.findById(returnRequest.orderId);
-
-    switch (order.paymentMethod.toLowerCase()) {
-      case 'stripe':
-        try {
-          const refund = await stripe.refunds.create({
-            payment_intent: order.stripePaymentId,
-            amount: Math.round(returnRequest.refundAmount * 100)
-          });
-
-          returnRequest.status = 'refunded';
-          returnRequest.statusHistory.push({
-            status: 'refunded',
-            notes: `Refund processed via Stripe (${refund.id})`,
-            changedBy: adminId
-          });
-        } catch (stripeError) {
-          console.error("Stripe refund error:", stripeError);
-          return res.status(500).json({ success: false, message: "Failed to process Stripe refund" });
-        }
-        break;
-
-      case 'gcash':
-        returnRequest.status = 'refunded';
-        returnRequest.statusHistory.push({
-          status: 'refunded',
-          notes: "Refund processed via GCash (manual)",
-          changedBy: adminId
-        });
-        break;
-
-      case 'cod':
-      case 'receipt_upload':
-        returnRequest.status = 'refunded';
-        returnRequest.statusHistory.push({
-          status: 'refunded',
-          notes: "Refund processed via " + returnRequest.refundMethod,
-          changedBy: adminId
-        });
-        break;
-
-      default:
-        return res.status(400).json({ success: false, message: "Unsupported payment method for refund" });
-    }
-
-    await returnRequest.save();
-
-    const itemIndex = order.items.findIndex(i => i._id.toString() === returnRequest.itemId);
-    order.items[itemIndex].returnStatus = 'refunded';
     await order.save();
 
-    io.to(returnRequest.userId.toString()).emit('returnStatusUpdate', returnRequest);
-
-    res.json({
-      success: true,
-      message: "Refund processed successfully",
-      return: returnRequest
-    });
-
-  } catch (error) {
-    console.error("Error processing refund:", error);
-    res.status(500).json({ success: false, message: "Failed to process refund" });
-  }
-};
-
-// Get user's returns
-const getUserReturns = async (req, res) => {
-  try {
-    const userId = req.userId;
-    const returns = await Return.find({ userId })
-      .populate('orderId', 'orderNumber date amount')
-      .sort({ createdAt: -1 });
-
-    res.json({ 
+    return res.status(201).json({ 
       success: true, 
-      returns 
+      message: 'Return request created successfully',
+      return: newReturn
     });
-
+    
   } catch (error) {
-    console.error("Error fetching user returns:", error);
-    res.status(500).json({ 
+    console.error('Error in createReturn:', error);
+    return res.status(500).json({ 
       success: false, 
-      message: "Failed to fetch return requests" 
+      message: 'Failed to create return request',
+      error: error.message
     });
   }
 };
 
-// Get return details
-const getReturnDetails = async (req, res) => {
-  try {
-    const returnId = req.params.id;
-    const userId = req.userId;
-
-    const returnRequest = await Return.findOne({ 
-      _id: returnId,
-      userId 
-    }).populate('orderId');
-
-    if (!returnRequest) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Return request not found" 
-      });
-    }
-
-    res.json({ 
-      success: true, 
-      return: returnRequest 
-    });
-
-  } catch (error) {
-    console.error("Error fetching return details:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Failed to fetch return details" 
-    });
-  }
-};
-
-// Upload return evidence
-const uploadReturnEvidence = async (req, res) => {
+// Upload evidence for a return request
+export const uploadEvidence = async (req, res) => {
   try {
     const { returnId } = req.params;
-    const userId = req.userId;
+    const userId = req.user.id;
 
-    if (!req.file) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "No file uploaded" 
-      });
-    }
-
-    const returnRequest = await Return.findOne({ 
-      _id: returnId,
-      userId 
-    });
-
+    // Find the return request
+    const returnRequest = await Return.findOne({ _id: returnId, userId });
+    
     if (!returnRequest) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Return request not found" 
-      });
+      return res.status(404).json({ success: false, message: 'Return request not found' });
     }
 
+    // Check if the status allows uploading evidence
     if (returnRequest.status !== 'pending') {
       return res.status(400).json({ 
         success: false, 
-        message: "Cannot add evidence to a processed return" 
+        message: `Cannot upload evidence for a return in ${returnRequest.status} status` 
       });
     }
 
-    // Add image to return
-    returnRequest.images.push({
-      filename: req.file.filename,
-      path: req.file.path,
-      mimetype: req.file.mimetype
-    });
+    // Process uploaded files
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ success: false, message: 'No files uploaded' });
+    }
 
+    // Add the images to the return request
+    const images = req.files.map(file => ({
+      filename: file.filename,
+      path: file.path,
+      mimetype: file.mimetype
+    }));
+
+    returnRequest.images = returnRequest.images ? [...returnRequest.images, ...images] : images;
+    
+    // Save the return request
     await returnRequest.save();
 
-    res.json({ 
+    return res.status(200).json({ 
       success: true, 
-      message: "Evidence uploaded successfully",
-      return: returnRequest
+      message: 'Evidence uploaded successfully',
+      images: returnRequest.images
     });
-
+    
   } catch (error) {
-    console.error("Error uploading return evidence:", error);
-    res.status(500).json({ 
+    console.error('Error uploading evidence:', error);
+    return res.status(500).json({ 
       success: false, 
-      message: "Failed to upload evidence" 
+      message: 'Failed to upload evidence',
+      error: error.message
     });
   }
 };
 
-export {
-  getUserReturns,
-  getReturnDetails,
-  uploadReturnEvidence
+// Get all returns for a user
+export const getUserReturns = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const returns = await Return.find({ userId })
+      .populate('orderId', 'orderNumber date')
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({ returns });
+    
+  } catch (error) {
+    console.error('Error getting user returns:', error);
+    return res.status(500).json({ 
+      message: 'Failed to fetch return requests',
+      error: error.message
+    });
+  }
+};
+
+// Get details of a specific return
+export const getReturnDetails = async (req, res) => {
+  try {
+    const { returnId } = req.params;
+    const userId = req.user.id;
+
+    const returnRequest = await Return.findOne({ _id: returnId, userId })
+      .populate('orderId', 'orderNumber date items status');
+
+    if (!returnRequest) {
+      return res.status(404).json({ message: 'Return request not found' });
+    }
+
+    // Get the specific item from the order
+    const order = returnRequest.orderId;
+    const item = order.items.find(item => item._id.toString() === returnRequest.itemId.toString());
+
+    if (!item) {
+      return res.status(404).json({ message: 'Item not found in order' });
+    }
+
+    // Construct response with all necessary details
+    const response = {
+      returnId: returnRequest._id,
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      orderDate: order.date,
+      itemDetails: {
+        id: item._id,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        image: item.image
+      },
+      reason: returnRequest.reason,
+      description: returnRequest.description,
+      images: returnRequest.images,
+      status: returnRequest.status,
+      statusHistory: returnRequest.statusHistory,
+      createdAt: returnRequest.createdAt,
+      updatedAt: returnRequest.updatedAt
+    };
+
+    return res.status(200).json(response);
+    
+  } catch (error) {
+    console.error('Error getting return details:', error);
+    return res.status(500).json({ 
+      message: 'Failed to fetch return details',
+      error: error.message
+    });
+  }
+};
+
+// Admin: Get all returns
+export const getAllReturns = async (req, res) => {
+  try {
+    const { status, sort = 'newest', page = 1, limit = 10 } = req.query;
+    const query = {};
+    
+    // Filter by status if provided
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+    
+    // Determine sort order
+    let sortOption = {};
+    if (sort === 'newest') {
+      sortOption = { createdAt: -1 };
+    } else if (sort === 'oldest') {
+      sortOption = { createdAt: 1 };
+    }
+
+    // Calculate pagination
+    const skip = (page - 1) * limit;
+    
+    // Get returns with pagination
+    const returns = await Return.find(query)
+      .populate('userId', 'name email')
+      .populate('orderId', 'orderNumber date')
+      .sort(sortOption)
+      .skip(skip)
+      .limit(Number(limit));
+      
+    // Get total count for pagination
+    const totalReturns = await Return.countDocuments(query);
+    
+    return res.status(200).json({ 
+      returns,
+      pagination: {
+        total: totalReturns,
+        page: Number(page),
+        limit: Number(limit),
+        pages: Math.ceil(totalReturns / limit)
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error getting all returns:', error);
+    return res.status(500).json({ 
+      message: 'Failed to fetch return requests',
+      error: error.message
+    });
+  }
+};
+
+// Admin: Update return status
+export const updateReturnStatus = async (req, res) => {
+  try {
+    const { returnId } = req.params;
+    const { status, adminNotes, refundAmount, refundMethod } = req.body;
+    const adminId = req.user.id;
+
+    // Find the return request
+    const returnRequest = await Return.findById(returnId);
+    
+    if (!returnRequest) {
+      return res.status(404).json({ success: false, message: 'Return request not found' });
+    }
+
+    // Update return request
+    returnRequest.status = status;
+    if (adminNotes) returnRequest.adminNotes = adminNotes;
+    
+    if (refundAmount) returnRequest.refundAmount = refundAmount;
+    if (refundMethod) returnRequest.refundMethod = refundMethod;
+    
+    // Add to status history
+    returnRequest.statusHistory.push({
+      status,
+      notes: adminNotes || `Status updated to ${status}`,
+      changedBy: adminId
+    });
+
+    // Find the order and update the item's return status
+    const order = await Order.findById(returnRequest.orderId);
+    if (order) {
+      const itemIndex = order.items.findIndex(item => 
+        item._id.toString() === returnRequest.itemId.toString()
+      );
+      
+      if (itemIndex !== -1) {
+        // Update the return status in the order item
+        order.items[itemIndex].returnStatus = status;
+        await order.save();
+      }
+    }
+
+    // Save the return request
+    await returnRequest.save();
+
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Return status updated successfully',
+      return: returnRequest
+    });
+    
+  } catch (error) {
+    console.error('Error updating return status:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update return status',
+      error: error.message
+    });
+  }
 };
