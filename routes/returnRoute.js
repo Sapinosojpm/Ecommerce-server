@@ -6,7 +6,8 @@ import {
   getUserReturns,
   getReturnDetails,
   uploadReturnEvidence,
-  checkReturnEligibility
+  checkReturnEligibility,
+  getAdminReturns 
 } from '../controllers/returnController.js';
 import adminAuth from '../middleware/adminAuth.js';
 import authUser from '../middleware/auth.js';
@@ -22,6 +23,7 @@ returnRouter.get('/:id', authUser, getReturnDetails);
 returnRouter.post('/create-return', authUser, upload.array('images'), createReturn);
 
 // Admin routes
+returnRouter.get('/admin', adminAuth, getAdminReturns); // Add this route
 returnRouter.post('/:id/process', adminAuth, processReturn);
 returnRouter.post('/:id/refund', adminAuth, processRefund);
 

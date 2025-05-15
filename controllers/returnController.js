@@ -450,6 +450,79 @@ const uploadReturnEvidence = async (req, res) => {
   }
 };
 
+// Add this to your returnController.js
+export const getAdminReturns = async (req, res) => {
+  try {
+    // Get query parameters for filtering
+    const { status, dateRange, search } = req.query;
+    
+    // Build the base query
+    let query = Return.find()
+      .populate('userId', 'name email')
+      .populate('orderId', 'orderNumber createdAt paymentMethod')
+      .sort({ createdAt: -1 });
+
+    // Apply status filter if provided
+    if (status && status !== 'all') {
+      query = query.where('status').equals(status);
+    }
+
+    // Apply date range filter if provided
+    if (dateRange && dateRange !== 'all') {
+      const now = new Date();
+      let startDate;
+
+      switch(dateRange) {
+        case 'today':
+          startDate = new Date(now.setHours(0, 0, 0, 0));
+          break;
+        case 'week':
+          startDate = new Date(now.setDate(now.getDate() - 7));
+          break;
+        case 'month':
+          startDate = new Date(now.setMonth(now.getMonth() - 1));
+          break;
+        default:
+          break;
+      }
+
+      if (startDate) {
+        query = query.where('createdAt').gte(startDate);
+      }
+    }
+
+    // Apply search filter if provided
+    if (search) {
+      const searchRegex = new RegExp(search, 'i');
+      query = query.or([
+        { _id: { $regex: searchRegex } },
+        { 'orderId.orderNumber': { $regex: searchRegex } },
+        { 'userId.name': { $regex: searchRegex } },
+        { 'userId.email': { $regex: searchRegex } }
+      ]);
+    }
+
+    const returns = await query.exec();
+
+    res.json({
+      success: true,
+      returns: returns.map(ret => ({
+        ...ret.toObject(),
+        itemDetails: ret.orderId?.items?.find(item => 
+          item._id.toString() === ret.itemId.toString() || 
+          item.productId.toString() === ret.itemId.toString()
+        )
+      }))
+    });
+  } catch (error) {
+    console.error('Error fetching admin returns:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch returns data' 
+    });
+  }
+};
+
 export {
   getUserReturns,
   getReturnDetails,
