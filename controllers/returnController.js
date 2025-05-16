@@ -189,7 +189,18 @@ export const processReturn = async (req, res) => {
     }
 
     const order = await orderModel.findById(returnRequest.orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    // DEBUG LOGGING
+    console.log("Looking for itemId:", returnRequest.itemId);
+    console.log("Available items in order:", order.items.map(i => i._id.toString()));
+
     const item = order.items.find(i => i._id.toString() === returnRequest.itemId);
+    if (!item) {
+      return res.status(404).json({ success: false, message: "Item not found in order" });
+    }
 
     switch (action) {
       case 'approve':
@@ -212,13 +223,17 @@ export const processReturn = async (req, res) => {
 
         if (item.variationId) {
           const product = await productModel.findById(item.productId);
-          const variation = product.variations.find(v =>
-            v.options.some(o => o._id.toString() === item.variationId)
-          );
-          if (variation) {
-            const option = variation.options.find(o => o._id.toString() === item.variationId);
-            option.quantity += item.quantity;
-            await product.save();
+          if (product) {
+            const variation = product.variations.find(v =>
+              v.options.some(o => o._id.toString() === item.variationId)
+            );
+            if (variation) {
+              const option = variation.options.find(o => o._id.toString() === item.variationId);
+              if (option) {
+                option.quantity += item.quantity;
+                await product.save();
+              }
+            }
           }
         } else {
           await productModel.findByIdAndUpdate(item.productId, {
@@ -231,8 +246,10 @@ export const processReturn = async (req, res) => {
         returnRequest.status = 'rejected';
         returnRequest.adminNotes = notes;
         const rejectIndex = order.items.findIndex(i => i._id.toString() === returnRequest.itemId);
-        order.items[rejectIndex].returnStatus = 'rejected';
-        await order.save();
+        if (rejectIndex !== -1) {
+          order.items[rejectIndex].returnStatus = 'rejected';
+          await order.save();
+        }
         break;
 
       default:
@@ -246,6 +263,8 @@ export const processReturn = async (req, res) => {
     });
 
     await returnRequest.save();
+
+    // Notify user via socket
     io.to(returnRequest.userId.toString()).emit('returnStatusUpdate', returnRequest);
 
     res.json({
