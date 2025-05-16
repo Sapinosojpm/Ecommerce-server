@@ -197,7 +197,11 @@ export const processReturn = async (req, res) => {
     console.log("Looking for itemId:", returnRequest.itemId);
     console.log("Available items in order:", order.items.map(i => i._id.toString()));
 
-    const item = order.items.find(i => i._id.toString() === returnRequest.itemId);
+   const item = order.items.find(i =>
+  i.productId.toString() === returnRequest.productId &&
+  (!i.variationId || i.variationId.toString() === returnRequest.variationId)
+);
+
     if (!item) {
       return res.status(404).json({ success: false, message: "Item not found in order" });
     }
