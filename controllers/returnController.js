@@ -193,14 +193,9 @@ export const processReturn = async (req, res) => {
       return res.status(404).json({ success: false, message: "Order not found" });
     }
 
-    // DEBUG LOGGING
-    console.log("Looking for itemId:", returnRequest.itemId);
-    console.log("Available items in order:", order.items.map(i => i._id.toString()));
-
-   const item = order.items.find(i =>
-  i.productId.toString() === returnRequest.productId &&
-  (!i.variationId || i.variationId.toString() === returnRequest.variationId)
-);
+    const item = order.items.find(i =>
+      i._id.toString() === returnRequest.itemId.toString()
+    );
 
     if (!item) {
       return res.status(404).json({ success: false, message: "Item not found in order" });
@@ -221,18 +216,20 @@ export const processReturn = async (req, res) => {
         returnRequest.refundMethod = refundMethod || 'original_payment';
         returnRequest.adminNotes = notes;
 
-        const itemIndex = order.items.findIndex(i => i._id.toString() === returnRequest.itemId);
-        order.items[itemIndex].returnStatus = 'approved';
-        await order.save();
+        const itemIndex = order.items.findIndex(i => i._id.toString() === returnRequest.itemId.toString());
+        if (itemIndex !== -1) {
+          order.items[itemIndex].returnStatus = 'approved';
+          await order.save();
+        }
 
         if (item.variationId) {
           const product = await productModel.findById(item.productId);
           if (product) {
             const variation = product.variations.find(v =>
-              v.options.some(o => o._id.toString() === item.variationId)
+              v.options.some(o => o._id.toString() === item.variationId.toString())
             );
             if (variation) {
-              const option = variation.options.find(o => o._id.toString() === item.variationId);
+              const option = variation.options.find(o => o._id.toString() === item.variationId.toString());
               if (option) {
                 option.quantity += item.quantity;
                 await product.save();
@@ -249,7 +246,8 @@ export const processReturn = async (req, res) => {
       case 'reject':
         returnRequest.status = 'rejected';
         returnRequest.adminNotes = notes;
-        const rejectIndex = order.items.findIndex(i => i._id.toString() === returnRequest.itemId);
+
+        const rejectIndex = order.items.findIndex(i => i._id.toString() === returnRequest.itemId.toString());
         if (rejectIndex !== -1) {
           order.items[rejectIndex].returnStatus = 'rejected';
           await order.save();
@@ -268,7 +266,7 @@ export const processReturn = async (req, res) => {
 
     await returnRequest.save();
 
-    // Notify user via socket
+    // Notify user via WebSocket
     io.to(returnRequest.userId.toString()).emit('returnStatusUpdate', returnRequest);
 
     res.json({
