@@ -284,7 +284,7 @@ export const processReturn = async (req, res) => {
 // Process refund
 export const processRefund = async (req, res) => {
   try {
-    const { returnId } = req.body;
+    const returnId = req.params.id || req.body.returnId; // <- changed here
     const adminId = req.userId;
 
     const returnRequest = await Return.findById(returnId);
@@ -344,10 +344,15 @@ export const processRefund = async (req, res) => {
     await returnRequest.save();
 
     const itemIndex = order.items.findIndex(i => i._id.toString() === returnRequest.itemId);
-    order.items[itemIndex].returnStatus = 'refunded';
-    await order.save();
+    if (itemIndex >= 0) {
+      order.items[itemIndex].returnStatus = 'refunded';
+      await order.save();
+    }
 
-    io.to(returnRequest.userId.toString()).emit('returnStatusUpdate', returnRequest);
+    // Ensure io is defined or comment out this line during testing
+    if (typeof io !== 'undefined') {
+      io.to(returnRequest.userId.toString()).emit('returnStatusUpdate', returnRequest);
+    }
 
     res.json({
       success: true,
@@ -360,6 +365,7 @@ export const processRefund = async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to process refund" });
   }
 };
+
 
 // Get user's returns
 const getUserReturns = async (req, res) => {
