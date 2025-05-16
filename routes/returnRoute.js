@@ -15,6 +15,11 @@ import { upload } from '../config/uploadConfig.js';
 
 const returnRouter = express.Router();
 
+// Admin routes
+returnRouter.get('/admin', adminAuth, getAdminReturns); // Add this route
+returnRouter.post('/:id/process', adminAuth, processReturn);
+returnRouter.post('/:id/refund', adminAuth, processRefund);
+
 // User routes
 returnRouter.post('/', authUser, upload.array('images'), createReturn);
 returnRouter.post('/:id/evidence', authUser, upload.single('images'), uploadReturnEvidence);
@@ -23,9 +28,6 @@ returnRouter.get('/check-eligibility', authUser, checkReturnEligibility);
 returnRouter.get('/:id', authUser, getReturnDetails)
 returnRouter.post('/create-return', authUser, upload.array('images'), createReturn);
 
-// Admin routes
-returnRouter.get('/admin', adminAuth, getAdminReturns); // Add this route
-returnRouter.post('/:id/process', adminAuth, processReturn);
-returnRouter.post('/:id/refund', adminAuth, processRefund);
+
 
 export default returnRouter;
