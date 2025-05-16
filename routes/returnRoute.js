@@ -16,10 +16,11 @@ import { upload } from '../config/uploadConfig.js';
 const returnRouter = express.Router();
 
 // User routes
-returnRouter.post('/', authUser, createReturn);
+returnRouter.post('/', authUser, upload.array('images'), createReturn);
+returnRouter.post('/:id/evidence', authUser, upload.single('images'), uploadReturnEvidence);
 returnRouter.get('/user', authUser, getUserReturns);
 returnRouter.get('/check-eligibility', authUser, checkReturnEligibility);
-returnRouter.get('/:id', authUser, getReturnDetails);
+returnRouter.get('/:id', authUser, getReturnDetails)
 returnRouter.post('/create-return', authUser, upload.array('images'), createReturn);
 
 // Admin routes
