@@ -453,26 +453,28 @@ const uploadReturnEvidence = async (req, res) => {
 // Add this to your returnController.js
 export const getAdminReturns = async (req, res) => {
   try {
-    // Get query parameters for filtering
     const { status, dateRange, search } = req.query;
-    
+
     // Build the base query
     let query = Return.find()
       .populate('userId', 'name email')
-      .populate('orderId', 'orderNumber createdAt paymentMethod')
+      .populate({
+        path: 'orderId',
+        select: 'orderNumber createdAt paymentMethod items'
+      })
       .sort({ createdAt: -1 });
 
-    // Apply status filter if provided
+    // Apply status filter
     if (status && status !== 'all') {
       query = query.where('status').equals(status);
     }
 
-    // Apply date range filter if provided
+    // Apply date range filter
     if (dateRange && dateRange !== 'all') {
       const now = new Date();
       let startDate;
 
-      switch(dateRange) {
+      switch (dateRange) {
         case 'today':
           startDate = new Date(now.setHours(0, 0, 0, 0));
           break;
@@ -482,8 +484,6 @@ export const getAdminReturns = async (req, res) => {
         case 'month':
           startDate = new Date(now.setMonth(now.getMonth() - 1));
           break;
-        default:
-          break;
       }
 
       if (startDate) {
@@ -491,15 +491,22 @@ export const getAdminReturns = async (req, res) => {
       }
     }
 
-    // Apply search filter if provided
+    // Apply search filter
     if (search) {
       const searchRegex = new RegExp(search, 'i');
-      query = query.or([
-        { _id: { $regex: searchRegex } },
+      const conditions = [];
+
+      if (mongoose.Types.ObjectId.isValid(search)) {
+        conditions.push({ _id: search });
+      }
+
+      conditions.push(
         { 'orderId.orderNumber': { $regex: searchRegex } },
         { 'userId.name': { $regex: searchRegex } },
         { 'userId.email': { $regex: searchRegex } }
-      ]);
+      );
+
+      query = query.or(conditions);
     }
 
     const returns = await query.exec();
@@ -508,17 +515,18 @@ export const getAdminReturns = async (req, res) => {
       success: true,
       returns: returns.map(ret => ({
         ...ret.toObject(),
-        itemDetails: ret.orderId?.items?.find(item => 
-          item._id.toString() === ret.itemId.toString() || 
-          item.productId.toString() === ret.itemId.toString()
+        itemDetails: ret.orderId?.items?.find(item =>
+          item._id?.toString() === ret.itemId?.toString() ||
+          item.productId?.toString() === ret.itemId?.toString()
         )
       }))
     });
   } catch (error) {
     console.error('Error fetching admin returns:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to fetch returns data' 
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch return details',
+      error: error.message // Optional: remove in production
     });
   }
 };
