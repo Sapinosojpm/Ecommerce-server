@@ -455,7 +455,7 @@ export const getAdminReturns = async (req, res) => {
   try {
     const { status, dateRange, search } = req.query;
 
-    // Build the base query
+    // Build base query
     let query = Return.find()
       .populate('userId', 'name email')
       .populate({
@@ -464,12 +464,12 @@ export const getAdminReturns = async (req, res) => {
       })
       .sort({ createdAt: -1 });
 
-    // Apply status filter
+    // Status filter
     if (status && status !== 'all') {
       query = query.where('status').equals(status);
     }
 
-    // Apply date range filter
+    // Date range filter
     if (dateRange && dateRange !== 'all') {
       const now = new Date();
       let startDate;
@@ -491,22 +491,22 @@ export const getAdminReturns = async (req, res) => {
       }
     }
 
-    // Apply search filter
+    // Search filter (safe check for ObjectId)
     if (search) {
       const searchRegex = new RegExp(search, 'i');
-      const conditions = [];
+      const orConditions = [];
 
       if (mongoose.Types.ObjectId.isValid(search)) {
-        conditions.push({ _id: search });
+        orConditions.push({ _id: new mongoose.Types.ObjectId(search) });
       }
 
-      conditions.push(
+      orConditions.push(
         { 'orderId.orderNumber': { $regex: searchRegex } },
         { 'userId.name': { $regex: searchRegex } },
         { 'userId.email': { $regex: searchRegex } }
       );
 
-      query = query.or(conditions);
+      query = query.or(orConditions);
     }
 
     const returns = await query.exec();
@@ -526,7 +526,7 @@ export const getAdminReturns = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch return details',
-      error: error.message // Optional: remove in production
+      error: error.message // optional: for debugging
     });
   }
 };
