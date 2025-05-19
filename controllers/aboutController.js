@@ -2,18 +2,14 @@ import About from '../models/aboutModel.js'; // Ensure the model is correctly im
 
 // Controller to get About data
 // Controller to get About data
+// aboutController.js
 export const getAboutData = async (req, res) => {
   try {
-    // For testing, set this to the correct URL
-    const backendUrl = import.meta.env.VITE_BACKEND_URL;
-
     const aboutData = await About.findOne({});
     if (aboutData && aboutData.image) {
-      // Construct full URL for the image
-      aboutData.image = `${backendUrl}/uploads/${aboutData.image}`;
+      // Use process.env for server-side environment variables
+      aboutData.image = `${process.env.VITE_BACKEND_URL}/uploads/${aboutData.image}`;
     }
-
-    console.log('About data:', aboutData);
     res.json(aboutData);
   } catch (error) {
     console.error('Error fetching about data:', error);
