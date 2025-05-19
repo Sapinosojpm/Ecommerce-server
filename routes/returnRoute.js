@@ -17,7 +17,7 @@ const returnRouter = express.Router();
 
 // Admin routes
 returnRouter.get('/admin', adminAuth, getAdminReturns); // Add this route
-returnRouter.post('/:id/process', adminAuth, processReturn);
+returnRouter.post('/:returnId/process', adminAuth, processReturn);
 returnRouter.post('/:id/refund', adminAuth, processRefund);
 
 // User routes
