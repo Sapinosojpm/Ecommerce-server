@@ -292,7 +292,7 @@ export const processRefund = async (req, res) => {
       return res.status(404).json({ success: false, message: "Return request not found" });
     }
 
-    if (returnRequest.status !== 'approved') {
+    if (returnRequest.status !== 'approved' && action === 'approve') {
       return res.status(400).json({ success: false, message: "Return must be approved before processing refund" });
     }
 
