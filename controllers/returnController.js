@@ -180,8 +180,7 @@ console.log("Order Query:", { orderId, userId }); // Debug log
 // Process return (admin only)
 export const processReturn = async (req, res) => {
   try {
-      const { returnId } = req.params;
-    const { action, refundAmount, refundMethod, notes } = req.body;
+    const { returnId, action, notes, refundAmount, refundMethod } = req.body;
     const adminId = req.userId;
 
     const returnRequest = await Return.findById(returnId);
@@ -259,11 +258,12 @@ export const processReturn = async (req, res) => {
         return res.status(400).json({ success: false, message: "Invalid action" });
     }
 
-     returnRequest.statusHistory.push({
+    returnRequest.statusHistory.push({
       status: returnRequest.status,
       notes: notes || `Return ${action}d by admin`,
       changedBy: adminId
     });
+
     await returnRequest.save();
 
     // Notify user via WebSocket
@@ -277,11 +277,7 @@ export const processReturn = async (req, res) => {
 
   } catch (error) {
     console.error("Error processing return:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Failed to process return",
-      error: error.message 
-    });
+    res.status(500).json({ success: false, message: "Failed to process return" });
   }
 };
 
