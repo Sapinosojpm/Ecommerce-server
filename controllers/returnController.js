@@ -558,6 +558,55 @@ export const getAdminReturns = async (req, res) => {
   }
 };
 
+
+// Check if return exists for an item
+export const checkReturnExists = async (req, res) => {
+  try {
+    const { orderId, itemId } = req.query;
+
+    if (!orderId || !itemId) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Missing orderId or itemId' 
+      });
+    }
+
+    // Validate IDs are valid MongoDB ObjectIDs
+    if (!mongoose.Types.ObjectId.isValid(orderId) || !mongoose.Types.ObjectId.isValid(itemId)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid orderId or itemId format'
+      });
+    }
+
+    // Look for an existing return request
+    const returnRequest = await Return.findOne({ 
+      orderId, 
+      itemId 
+    }).populate('orderId', 'orderNumber createdAt items');
+
+    if (!returnRequest) {
+      return res.status(200).json({ 
+        success: true,
+        exists: false
+      });
+    }
+
+    // Return exists
+    res.status(200).json({ 
+      success: true,
+      exists: true,
+      returnRequest
+    });
+  } catch (error) {
+    console.error('Error checking return existence:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error checking return status'
+    });
+  }
+};
+
 export {
   getUserReturns,
   getReturnDetails,
