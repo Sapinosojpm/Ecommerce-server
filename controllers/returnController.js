@@ -72,7 +72,8 @@ export const checkReturnEligibility = async (req, res) => {
       orderDetails: {
         items: order.items,
         orderDate: order.createdAt,
-        status: order.status
+        status: order.status,
+        itemDetails: item 
       }
     });
   } catch (error) {
@@ -89,25 +90,20 @@ export const checkReturnEligibility = async (req, res) => {
 export const createReturn = async (req, res) => {
   try {
     const { orderId, itemId, reason, description } = req.body;
-   const userId = req.userId || req.body.userId;  // Use req.body.userId as a fallback
+    const userId = req.userId || req.body.userId;
 
-console.log("Order Query:", { orderId, userId }); // Debug log
     // Validation
     if (!orderId || !itemId || !reason || !description) {
       return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(orderId) || !mongoose.Types.ObjectId.isValid(itemId)) {
-      return res.status(400).json({ success: false, message: "Invalid orderId or itemId" });
-    }
-
-    // Find order
+    // Find order, validate ownership
     const order = await orderModel.findOne({ _id: orderId, userId });
     if (!order) {
       return res.status(404).json({ success: false, message: "Order not found or not owned by user" });
     }
 
-    // Find item
+    // Find item in order
     const item = order.items.find(i => i._id.toString() === itemId);
     if (!item) {
       return res.status(404).json({ success: false, message: "Item not found in order" });
@@ -119,7 +115,7 @@ console.log("Order Query:", { orderId, userId }); // Debug log
       return res.status(400).json({ success: false, message: "Return already requested for this item" });
     }
 
-    // Check return window
+    // Check return window (7 days from delivery)
     const deliveryDate = new Date(order.updatedAt);
     const returnDeadline = new Date(deliveryDate);
     returnDeadline.setDate(returnDeadline.getDate() + 7);
@@ -127,7 +123,7 @@ console.log("Order Query:", { orderId, userId }); // Debug log
       return res.status(400).json({ success: false, message: "Return window expired (7 days from delivery)" });
     }
 
-    // Handle file upload (if using multer)
+    // Handle file upload (optional, uses multer)
     const images = req.files?.map(file => ({
       filename: file.filename,
       path: file.path,
@@ -154,16 +150,17 @@ console.log("Order Query:", { orderId, userId }); // Debug log
 
     await newReturn.save();
 
-    // Update order's item return status
+    // Update item's return status
     const itemIndex = order.items.findIndex(i => i._id.toString() === itemId);
     if (itemIndex !== -1) {
       order.items[itemIndex].returnStatus = 'pending';
       await order.save();
     }
 
-    // Emit real-time update to admin
+    // 🔔 Emit real-time event to admin
     io.to('admin_room').emit('newReturnRequest', newReturn);
 
+    // ✅ Send response
     res.status(201).json({
       success: true,
       message: "Return request submitted successfully",
