@@ -63,6 +63,7 @@ import Order from './models/orderModel.js';
 import { MongoClient } from 'mongodb';
 import jwt from 'jsonwebtoken';
 import liveStreamRoutes from './routes/liveStreamRoutes.js';
+import liveChatRoutes from './routes/liveChatRoutes.js';
 import { 
   createMediasoupWorker, 
   createMediasoupRouter, 
@@ -149,6 +150,45 @@ const onlineUsers = new Set(); // Track online users
 // Socket.IO Connection Handler
 io.on('connection', (socket) => {
   console.log('New client connected:', socket.id);
+
+  // Join the admin room if the user is an admin
+   // Admin availability
+  socket.on('set-admin-availability', async ({ isAvailable }) => {
+    if (socket.userRole !== 'admin') return;
+    
+    try {
+      await User.findByIdAndUpdate(socket.userId, { isAvailable });
+      io.emit('admin-availability', { 
+        adminId: socket.userId, 
+        isAvailable 
+      });
+    } catch (error) {
+      console.error('Error updating admin availability:', error);
+    }
+  });
+
+  // Typing indicators
+  socket.on('typing', ({ recipientId, isTyping }) => {
+    if (!socket.userId) return;
+    
+    if (socket.userRole === 'admin') {
+      io.to(recipientId).emit('admin-typing', isTyping);
+    } else {
+      socket.to('admin-room').emit('user-typing', {
+        userId: socket.userId,
+        isTyping
+      });
+    }
+  });
+
+  // Join user-specific room
+  socket.on('join-user-room', (userId) => {
+    socket.join(userId);
+  });
+
+  // =========================================================
+
+
   // mediasoup
  // Mediasoup WebRTC transport creation
  socket.on('createWebRtcTransport', async ({ sender }, callback) => {
@@ -606,6 +646,7 @@ async function setupChangeStreams() {
 setupChangeStreams().catch(console.error);
 
 // Use routes
+app.use('/api/chat', liveChatRoutes);
 app.use('/api/returns', returnRouter);
 app.use('/api/livestream', liveStreamRoutes); 
 app.use('/api/live-selling', liveSellingRoutes);

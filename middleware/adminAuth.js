@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import multer from "multer";
 // authUser.js (middleware)
 const authUser = async (req, res, next) => {
     try {
@@ -21,6 +22,33 @@ const authUser = async (req, res, next) => {
         console.log("Auth Error:", error);
         return res.status(401).json({ success: false, message: "Invalid or Expired Token" });
     }
+};
+
+// Protect Middleware – for any logged-in user
+export const protect = async (req, res, next) => {
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) {
+      return res.status(401).json({ success: false, message: "Not Authorized. Login Again" });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+
+    next();
+  } catch (error) {
+    return res.status(401).json({ success: false, message: "Invalid or Expired Token" });
+  }
+};
+export const admin = async (req, res, next) => {
+  try {
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ success: false, message: "Admin access only" });
+    }
+    next();
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
 };
 
 export default authUser;

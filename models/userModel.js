@@ -58,6 +58,7 @@ const userSchema = new mongoose.Schema(
     profilePicture: { type: String },
     wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: "Product" }],
     role: { type: String, enum: ["user", "admin"], default: "user" },
+    isAvailable: { type: Boolean, default: false },
     verified: { type: Boolean, default: false }, // Added for phone verification
     registrationComplete: { type: Boolean, default: false }, // Added for step registration
     claimedVouchers: [
