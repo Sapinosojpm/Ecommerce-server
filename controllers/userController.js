@@ -11,7 +11,7 @@ dotenv.config();
 
 // Helper function to create a JWT token
 const createToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "1h" });
+  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "4h" });
 };
 
 // Google OAuth client
@@ -382,7 +382,7 @@ const adminLogin = async (req, res) => {
     const token = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_SECRET,
-      { expiresIn: "1h" }
+      { expiresIn: "4h" }
     );
     res.json({ success: true, token });
   } catch (error) {
