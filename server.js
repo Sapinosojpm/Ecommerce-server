@@ -112,7 +112,7 @@ const __dirname = dirname(__filename);
 
 // Connect to Database and Cloudinary
 connectDB();
-connectCloudinary();
+// connectCloudinary();
 EventEmitter.defaultMaxListeners = 30;
 
 // Serve static files from the 'uploads' folder
