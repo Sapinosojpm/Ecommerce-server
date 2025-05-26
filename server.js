@@ -4,7 +4,7 @@ import 'dotenv/config';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import connectDB from './config/mongodb.js';
-import connectCloudinary from './config/cloudinary.js';
+import { connectCloudinary } from './config/cloudinary.js';
 import userRouter from './routes/userRoute.js';
 import productRouter from './routes/productRoute.js';
 import cartRouter from './routes/cartRoute.js';
@@ -112,7 +112,7 @@ const __dirname = dirname(__filename);
 
 // Connect to Database and Cloudinary
 connectDB();
-// connectCloudinary();
+connectCloudinary();
 EventEmitter.defaultMaxListeners = 30;
 
 // Serve static files from the 'uploads' folder
@@ -141,6 +141,11 @@ app.use(cors({
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization', 'token']
 }));
+// Add these near your other middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // For form data
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
 
 // Chat system variables
 const activeAdmins = new Set();

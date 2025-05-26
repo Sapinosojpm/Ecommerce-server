@@ -1008,6 +1008,60 @@ export const verifyPayment = async (req, res) => {
 };
 
 
+// Add to orderController.js
+
+export const scanQrAndUpdateStatus = async (req, res) => {
+  try {
+    const { qrData } = req.body;
+    
+    if (!qrData) {
+      return res.status(400).json({ success: false, message: "QR data is required" });
+    }
+
+    let orderData;
+    try {
+      orderData = JSON.parse(qrData);
+    } catch (error) {
+      return res.status(400).json({ success: false, message: "Invalid QR data format" });
+    }
+
+    const { orderId } = orderData;
+    if (!orderId) {
+      return res.status(400).json({ success: false, message: "Order ID not found in QR data" });
+    }
+
+    const order = await orderModel.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    // Update status to "Ready for Pickup"
+    order.status = "Ready for Pickup";
+    order.statusHistory.push({
+      status: "Ready for Pickup",
+      changedAt: new Date(),
+      notes: "Status updated via QR scan"
+    });
+
+    await order.save();
+
+    // Emit WebSocket events
+    io.to(order.userId.toString()).emit('orderUpdated', order);
+    io.to('admin_room').emit('orderUpdatedAdmin', order);
+    io.to(`order_${order._id.toString()}`).emit('orderStatusUpdate', order);
+
+    return res.json({ 
+      success: true, 
+      message: "Order status updated to Ready for Pickup",
+      order
+    });
+
+  } catch (error) {
+    console.error("Error scanning QR and updating status:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 export {
   uploadReceipt,
   verifyStripe,

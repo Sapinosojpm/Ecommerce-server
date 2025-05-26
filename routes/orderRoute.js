@@ -12,7 +12,8 @@ import {
   confirmPayment,
   getOrderForPayment,
   processPayment,
-  verifyPayment
+  verifyPayment,
+  scanQrAndUpdateStatus
 } from '../controllers/orderController.js';
 import adminAuth from '../middleware/adminAuth.js';
 import authUser from '../middleware/auth.js';
@@ -43,5 +44,6 @@ orderRouter.post("/confirm-payment", confirmPayment);
 orderRouter.get('/:id/payment', authUser, getOrderForPayment);
 orderRouter.post('/:id/pay', authUser, processPayment);
 orderRouter.post('/:id/verify-payment', authUser, verifyPayment);
-
+// Add to orderRoute.js
+orderRouter.post('/scan-qr', adminAuth, scanQrAndUpdateStatus);
 export default orderRouter;
