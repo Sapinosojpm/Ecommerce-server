@@ -80,8 +80,7 @@ const userSchema = new mongoose.Schema(
 );
 
 
-// Add index for better phone number query performance
-userSchema.index({ phone: 1 }, { unique: true, sparse: true });
+
 
 const userModel = mongoose.models.User || mongoose.model("User", userSchema);
 export default userModel;
