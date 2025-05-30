@@ -13,6 +13,19 @@ const orderSchema = new mongoose.Schema({
   customerName: String,
   voucherAmount: Number,
   voucherCode: String,
+  tracking: {
+    trackingNumber: String,
+    carrierCode: String,
+    trackingId: String,
+    trackingUrl: String,
+    status: String,
+    events: [{
+      description: String,
+      location: String,
+      timestamp: Date
+    }],
+    lastUpdated: Date
+  },
   receiptImage: {
     filename: String, // File name
     path: String, // Path to the file
