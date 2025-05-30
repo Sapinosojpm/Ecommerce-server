@@ -13,19 +13,27 @@ const orderSchema = new mongoose.Schema({
   customerName: String,
   voucherAmount: Number,
   voucherCode: String,
-  tracking: {
-    trackingNumber: String,
-    carrierCode: String,
-    trackingId: String,
-    trackingUrl: String,
-    status: String,
-    events: [{
-      description: String,
-      location: String,
-      timestamp: Date
-    }],
-    lastUpdated: Date
+ tracking: {
+  trackingNumber: String,
+  carrierCode: String,
+  trackingId: String,
+  trackingUrl: String,
+  status: {
+    type: String,
+    enum: ['pending', 'in_transit', 'out_for_delivery', 'delivered', 'exception', 'expired'],
+    default: 'pending'
   },
+  events: [{
+    description: String,
+    location: String,
+    timestamp: Date,
+    status: String
+  }],
+  lastUpdated: Date,
+  estimatedDelivery: Date,
+  originCountry: String,
+  destinationCountry: String
+},
   receiptImage: {
     filename: String, // File name
     path: String, // Path to the file

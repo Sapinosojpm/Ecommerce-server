@@ -55,6 +55,6 @@ orderRouter.post('/scan-qr', adminAuth, scanQrAndUpdateStatus);
 // Tracking routes
 orderRouter.post('/:id/tracking', adminAuth, createTracking);
 orderRouter.get('/:id/tracking', authUser, getTracking);
-orderRouter.post('/tracking/webhook', updateTracking); // For TrackingMore webhooks
+orderRouter.post('/tracking/webhook', express.json(), updateTracking); // For TrackingMore webhooks
 orderRouter.get('/carriers', adminAuth, getCarriers);
 export default orderRouter;

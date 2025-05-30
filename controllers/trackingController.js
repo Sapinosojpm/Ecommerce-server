@@ -37,6 +37,15 @@ export const createTracking = async (req, res) => {
       });
     }
 
+    // Validate carrier code
+    const validCarriers = await getValidCarriers();
+    if (!validCarriers.some(c => c.code === carrierCode)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid carrier code'
+      });
+    }
+
     // Create tracking in TrackingMore
     const trackingData = {
       tracking_number: trackingNumber,
@@ -48,20 +57,43 @@ export const createTracking = async (req, res) => {
       title: `Order ${order.orderNumber}`,
       logistics_channel: order.paymentMethod,
       customer_email: order.address?.email || '',
-      customer_phone: order.address?.phone || ''
+      customer_phone: order.address?.phone || '',
+      note: `Order from ${process.env.APP_NAME || 'E-commerce Store'}`
     };
 
-    const response = await trackingApi.post('/trackings/create', trackingData);
+    const response = await trackingApi.post('/trackings/create', {
+      data: {
+        attributes: trackingData
+      }
+    });
 
     // Update order with tracking info
     order.tracking = {
       trackingNumber,
       carrierCode,
       trackingId: response.data.data.id,
-      trackingUrl: `https://trackingmore.com/tracking.php?nums=${trackingNumber}&courier=${carrierCode}`
+      trackingUrl: `https://trackingmore.com/tracking.php?nums=${trackingNumber}&courier=${carrierCode}`,
+      status: 'pending',
+      lastUpdated: new Date()
     };
 
+    // Update order status to "Shipped" when tracking is added
+    order.status = 'Shipped';
+    order.statusHistory.push({
+      status: 'Shipped',
+      changedAt: new Date(),
+      notes: 'Tracking information added'
+    });
+
     await order.save();
+
+    // Emit WebSocket events
+    if (req.app.get('io')) {
+      const io = req.app.get('io');
+      io.to(order.userId.toString()).emit('orderTrackingUpdate', order);
+      io.to('admin_room').emit('orderTrackingUpdateAdmin', order);
+      io.to(`order_${order._id.toString()}`).emit('orderStatusUpdate', order);
+    }
 
     return res.json({
       success: true,
@@ -70,10 +102,19 @@ export const createTracking = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error creating tracking:', error.response?.data || error.message);
+    console.error('Error creating tracking:', {
+      error: error.response?.data || error.message,
+      stack: error.stack
+    });
+    
+    let errorMessage = 'Failed to create tracking';
+    if (error.response?.data?.errors) {
+      errorMessage = error.response.data.errors.map(e => e.message).join(', ');
+    }
+
     return res.status(500).json({
       success: false,
-      message: 'Failed to create tracking',
+      message: errorMessage,
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -93,18 +134,48 @@ export const getTracking = async (req, res) => {
     }
 
     // Get tracking info from TrackingMore
-    const response = await trackingApi.get(`/trackings/get?tracking_number=${order.tracking.trackingNumber}&carrier_code=${order.tracking.carrierCode}`);
+    const response = await trackingApi.get(
+      `/trackings/${order.tracking.trackingNumber}/${order.tracking.carrierCode}`
+    );
+
+    const trackingData = response.data.data;
+    
+    // Update local tracking info if needed
+    if (trackingData.status !== order.tracking.status) {
+      order.tracking.status = trackingData.status;
+      order.tracking.events = trackingData.events;
+      order.tracking.lastUpdated = new Date();
+      
+      // Update order status based on tracking status
+      updateOrderStatusFromTracking(order, trackingData.status);
+      
+      await order.save();
+    }
 
     return res.json({
       success: true,
       tracking: {
         ...order.tracking.toObject(),
-        details: response.data.data
+        details: trackingData
       }
     });
 
   } catch (error) {
-    console.error('Error getting tracking:', error.response?.data || error.message);
+    console.error('Error getting tracking:', {
+      error: error.response?.data || error.message,
+      stack: error.stack
+    });
+    
+    // If API fails, try to return local tracking info
+    const order = await orderModel.findById(req.params.orderId);
+    if (order?.tracking) {
+      return res.json({
+        success: true,
+        tracking: order.tracking,
+        warning: 'Could not fetch latest tracking info'
+      });
+    }
+
     return res.status(500).json({
       success: false,
       message: 'Failed to get tracking info',
@@ -116,6 +187,12 @@ export const getTracking = async (req, res) => {
 // Update tracking info (webhook handler)
 export const updateTracking = async (req, res) => {
   try {
+    // Verify webhook signature if needed
+    // const signature = req.headers['trackingmore-webhook-signature'];
+    // if (!verifyWebhookSignature(signature, req.body)) {
+    //   return res.status(401).json({ success: false, message: 'Unauthorized' });
+    // }
+
     const { tracking_number, carrier_code, status, original_country, destination_country, events } = req.body;
 
     // Find order by tracking number
@@ -133,13 +210,7 @@ export const updateTracking = async (req, res) => {
     order.tracking.lastUpdated = new Date();
 
     // Update order status based on tracking status
-    if (status === 'delivered') {
-      order.status = 'delivered';
-    } else if (status === 'in_transit') {
-      order.status = 'shipped';
-    } else if (status === 'out_for_delivery') {
-      order.status = 'out for delivery';
-    }
+    updateOrderStatusFromTracking(order, status);
 
     await order.save();
 
@@ -157,7 +228,11 @@ export const updateTracking = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error updating tracking:', error);
+    console.error('Error updating tracking:', {
+      error: error.message,
+      stack: error.stack,
+      body: req.body
+    });
     return res.status(500).json({
       success: false,
       message: 'Failed to update tracking'
@@ -168,10 +243,10 @@ export const updateTracking = async (req, res) => {
 // Get all carriers supported by TrackingMore
 export const getCarriers = async (req, res) => {
   try {
-    const response = await trackingApi.get('/carriers');
+    const carriers = await getValidCarriers();
     return res.json({
       success: true,
-      carriers: response.data.data
+      carriers
     });
   } catch (error) {
     console.error('Error getting carriers:', error.response?.data || error.message);
@@ -181,3 +256,47 @@ export const getCarriers = async (req, res) => {
     });
   }
 };
+
+// Helper functions
+async function getValidCarriers() {
+  try {
+    const response = await trackingApi.get('/carriers');
+    return response.data.data
+      .filter(carrier => carrier.supported_codes.includes('PH')) // Only carriers that support Philippines
+      .map(carrier => ({
+        code: carrier.code,
+        name: carrier.name,
+        website: carrier.website
+      }));
+  } catch (error) {
+    console.error('Error fetching carriers:', error);
+    return []; // Return empty array if API fails
+  }
+}
+
+function updateOrderStatusFromTracking(order, trackingStatus) {
+  const statusMap = {
+    'pending': 'Shipped',
+    'in_transit': 'Shipped',
+    'out_for_delivery': 'Out for Delivery',
+    'delivered': 'Delivered',
+    'exception': 'Delivery Exception',
+    'expired': 'Delivery Failed'
+  };
+
+  const newStatus = statusMap[trackingStatus] || order.status;
+  if (newStatus !== order.status) {
+    order.status = newStatus;
+    order.statusHistory.push({
+      status: newStatus,
+      changedAt: new Date(),
+      notes: `Status updated from tracking: ${trackingStatus}`
+    });
+  }
+}
+
+// Optional: Webhook signature verification
+function verifyWebhookSignature(signature, body) {
+  // Implement your verification logic here if needed
+  return true; // Placeholder
+}
