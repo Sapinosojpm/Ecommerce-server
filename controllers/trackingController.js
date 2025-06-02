@@ -19,7 +19,8 @@ const trackingApi = axios.create({
 // Create a tracking number
 export const createTracking = async (req, res) => {
   try {
-    const { orderId, trackingNumber, carrierCode } = req.body;
+     const orderId = req.params.id; // <-- Get from params
+    const { trackingNumber, carrierCode } = req.body;
 
     if (!orderId || !trackingNumber || !carrierCode) {
       return res.status(400).json({
@@ -261,18 +262,17 @@ export const getCarriers = async (req, res) => {
 async function getValidCarriers() {
   try {
     const response = await trackingApi.get('/carriers');
-    return response.data.data
-      .filter(carrier => carrier.supported_codes.includes('PH')) // Only carriers that support Philippines
-      .map(carrier => ({
-        code: carrier.code,
-        name: carrier.name,
-        website: carrier.website
-      }));
+    return response.data.data.map(carrier => ({
+      code: carrier.code,
+      name: carrier.name,
+      website: carrier.website
+    }));
   } catch (error) {
     console.error('Error fetching carriers:', error);
-    return []; // Return empty array if API fails
+    return [];
   }
 }
+
 
 function updateOrderStatusFromTracking(order, trackingStatus) {
   const statusMap = {
