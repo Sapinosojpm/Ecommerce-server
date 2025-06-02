@@ -258,10 +258,21 @@ export const getCarriers = async (req, res) => {
   }
 };
 
-// Helper functions
 async function getValidCarriers() {
   try {
     const response = await trackingApi.get('/carriers');
+    console.log('Raw carriers response:', response.data);  // Debug line
+
+    if (!response.data.success) {
+      console.error('API returned success=false');
+      return [];
+    }
+
+    if (!response.data.data || response.data.data.length === 0) {
+      console.warn('No carriers returned from API');
+      return [];
+    }
+
     return response.data.data.map(carrier => ({
       code: carrier.code,
       name: carrier.name,
@@ -272,6 +283,7 @@ async function getValidCarriers() {
     return [];
   }
 }
+
 
 
 function updateOrderStatusFromTracking(order, trackingStatus) {
