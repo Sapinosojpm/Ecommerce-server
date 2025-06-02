@@ -17,8 +17,6 @@ const createToken = (id) => {
 // Google OAuth client
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-
-
 // Route for user login
 const loginUser = async (req, res) => {
   try {
@@ -79,6 +77,7 @@ const loginUser = async (req, res) => {
       role: user.role,
       phone: user.phone,
       phoneVerified: user.phoneVerified,
+      permissions: user.permissions || {}, // Include permissions
       cartData: user.cartData || {} // Ensure cartData is always returned as object
     };
 
@@ -101,7 +100,6 @@ const loginUser = async (req, res) => {
 };
 
 // Route for user registration
-// Modify the registerUser function
 const registerUser = async (req, res) => {
   try {
     const { firstName, lastName, email, password, phone } = req.body;
@@ -143,13 +141,12 @@ const registerUser = async (req, res) => {
     }
 
     // Only proceed with OTP verification - don't save user yet
-    // In the phone verification section of registerUser
     if (phone) {
       return res.status(200).json({ 
         success: true,
         needsVerification: true,
         tempUserData: {
-          _id: new mongoose.Types.ObjectId(), // Now properly generated
+          _id: new mongoose.Types.ObjectId(),
           firstName,
           lastName,
           email,
@@ -159,6 +156,7 @@ const registerUser = async (req, res) => {
         message: 'Please verify your phone number'
       });
     }
+    
     // If no phone verification needed, create and save user
     const user = new userModel({
       firstName,
@@ -191,7 +189,7 @@ const registerUser = async (req, res) => {
   }
 };
 
-// In userController.js
+// Finalize registration
 export const finalizeRegistration = async (req, res) => {
   try {
     const { tempUserData } = req.body;
@@ -201,7 +199,6 @@ export const finalizeRegistration = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User already exists' });
     }
 
-    // Finalize the registration and set phoneVerified to true
     const user = new userModel({
       ...tempUserData,
       registrationComplete: true,
@@ -211,8 +208,7 @@ export const finalizeRegistration = async (req, res) => {
 
     await user.save();
 
-    // Now, mark the user as verified after successful registration
-    await verifyUserPhone(user._id); // This is where we update the `verified` status
+    await verifyUserPhone(user._id);
 
     const token = createToken(user._id);
 
@@ -236,19 +232,16 @@ export const finalizeRegistration = async (req, res) => {
   }
 };
 
-
-// Example function for updating user verification status after OTP verification
-// Example function for updating user verification status after OTP verification
+// Verify user phone
 const verifyUserPhone = async (userId) => {
   try {
-    // Update both phoneVerified and verified fields to true
     const updatedUser = await userModel.findByIdAndUpdate(
       userId, 
       { 
         phoneVerified: true, 
-        verified: true  // Ensure the user is fully verified after phone verification
+        verified: true
       },
-      { new: true }  // This returns the updated document
+      { new: true }
     );
     console.log('User verification status updated:', updatedUser);
   } catch (error) {
@@ -256,15 +249,11 @@ const verifyUserPhone = async (userId) => {
   }
 };
 
-
-
-// Add this new endpoint to handle final registration after OTP verification
-// In userController.js
+// Complete registration
 const completeRegistration = async (req, res) => {
   try {
     const { firstName, lastName, email, password, phone } = req.body;
 
-    // Check if email or phone already exists
     const existingUser = await userModel.findOne({
       $or: [{ email }, { phone }, { tempPhone: phone }],
     });
@@ -322,7 +311,6 @@ const googleLogin = async (req, res) => {
         .json({ success: false, message: "Google token is required!" });
     }
 
-    // Verify the Google token
     const ticket = await client.verifyIdToken({
       idToken: token,
       audience: process.env.GOOGLE_CLIENT_ID,
@@ -330,10 +318,8 @@ const googleLogin = async (req, res) => {
 
     const payload = ticket.getPayload();
 
-    // Check if the user exists
     let user = await userModel.findOne({ email: payload.email });
 
-    // If user doesn't exist, create new
     if (!user) {
       user = new userModel({
         firstName: payload.given_name,
@@ -443,6 +429,79 @@ const changeUserRole = async (req, res) => {
   }
 };
 
+// NEW: Update user permissions
+const updateUserPermissions = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { permissions } = req.body;
+    const adminId = req.user.id;
+
+    // Check if the requester is an admin
+    const admin = await userModel.findById(adminId);
+    if (!admin || admin.role !== "admin") {
+      return res.status(403).json({ success: false, message: "Access denied. Admin privileges required." });
+    }
+
+    // Find the user to update
+    const user = await userModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Prevent admins from modifying their own permissions
+    if (String(userId) === String(adminId)) {
+      return res.status(400).json({ success: false, message: "You cannot modify your own permissions" });
+    }
+
+    // Don't allow changing permissions for other admins
+    if (user.role === "admin") {
+      return res.status(400).json({ success: false, message: "Cannot modify admin permissions" });
+    }
+
+    // Update user permissions
+    user.permissions = { ...user.permissions, ...permissions };
+    await user.save();
+
+    res.json({ 
+      success: true, 
+      message: "User permissions updated successfully",
+      permissions: user.permissions
+    });
+  } catch (error) {
+    console.error("Error updating user permissions:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// NEW: Get user profile with permissions
+const getUserProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await userModel.findById(userId).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    res.json({ 
+      success: true, 
+      user: {
+        _id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        role: user.role,
+        permissions: user.permissions || {},
+        phone: user.phone,
+        phoneVerified: user.phoneVerified
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching user profile:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 export {
   loginUser,
   registerUser,
@@ -451,5 +510,7 @@ export {
   changeUserRole,
   adminLogin,
   completeRegistration,
-  createToken, // Removed duplicate export
+  updateUserPermissions, // NEW
+  getUserProfile, // NEW
+  createToken,
 };

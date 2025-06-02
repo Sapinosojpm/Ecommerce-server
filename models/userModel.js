@@ -61,6 +61,37 @@ const userSchema = new mongoose.Schema(
     isAvailable: { type: Boolean, default: false },
     verified: { type: Boolean, default: false }, // Added for phone verification
     registrationComplete: { type: Boolean, default: false }, // Added for step registration
+    
+    // NEW: Role-based permissions
+    permissions: {
+      type: Object,
+      default: {
+        // Main Menu permissions
+        dashboard: true,
+        addItems: false,
+        listItems: true,
+        orders: true,
+        returns: false,
+        users: false,
+        adminLiveChat: false,
+        
+        // E-commerce permissions
+        askDiscount: false,
+        voucherAmount: false,
+        category: false,
+        regionFee: false,
+        feeKilo: false,
+        deals: true,
+        
+        // Content permissions
+        homepage: false,
+        aboutPage: false,
+        contactPage: false,
+        popupManager: false,
+        portfolio: false
+      }
+    },
+    
     claimedVouchers: [
       {
         voucher: { type: mongoose.Schema.Types.ObjectId, ref: "VoucherAmount" },
@@ -73,14 +104,70 @@ const userSchema = new mongoose.Schema(
   },
   
   { 
-    
     minimize: false,
     timestamps: true // Added timestamps for better tracking
   }
 );
 
-
-
+// Pre-save middleware to set admin permissions
+userSchema.pre('save', function(next) {
+  if (this.role === 'admin') {
+    // Admins get all permissions by default
+    this.permissions = {
+      // Main Menu permissions
+      dashboard: true,
+      addItems: true,
+      listItems: true,
+      orders: true,
+      returns: true,
+      users: true,
+      adminLiveChat: true,
+      
+      // E-commerce permissions
+      askDiscount: true,
+      voucherAmount: true,
+      category: true,
+      regionFee: true,
+      feeKilo: true,
+      deals: true,
+      
+      // Content permissions
+      homepage: true,
+      aboutPage: true,
+      contactPage: true,
+      popupManager: true,
+      portfolio: true
+    };
+  } else if (this.isNew && this.role === 'user') {
+    // Set default user permissions only for new users
+    this.permissions = {
+      // Main Menu permissions
+      dashboard: true,
+      addItems: false,
+      listItems: true,
+      orders: true,
+      returns: false,
+      users: false,
+      adminLiveChat: false,
+      
+      // E-commerce permissions
+      askDiscount: false,
+      voucherAmount: false,
+      category: false,
+      regionFee: false,
+      feeKilo: false,
+      deals: true,
+      
+      // Content permissions
+      homepage: false,
+      aboutPage: false,
+      contactPage: false,
+      popupManager: false,
+      portfolio: false
+    };
+  }
+  next();
+});
 
 const userModel = mongoose.models.User || mongoose.model("User", userSchema);
 export default userModel;
