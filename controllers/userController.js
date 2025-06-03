@@ -77,7 +77,6 @@ const loginUser = async (req, res) => {
       role: user.role,
       phone: user.phone,
       phoneVerified: user.phoneVerified,
-      permissions: user.permissions || {}, // Include permissions
       cartData: user.cartData || {} // Ensure cartData is always returned as object
     };
 
@@ -354,9 +353,10 @@ const adminLogin = async (req, res) => {
         .json({ success: false, message: "User not found" });
     }
 
-    if (user.role !== "admin") {
-      return res.status(403).json({ success: false, message: "Access denied" });
-    }
+if (user.role !== "admin" && user.role !== "staff") {
+  return res.status(403).json({ success: false, message: "Access denied" });
+}
+
 
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
     if (!isPasswordCorrect) {
@@ -365,12 +365,13 @@ const adminLogin = async (req, res) => {
         .json({ success: false, message: "Invalid credentials" });
     }
 
+
     const token = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: "4h" }
     );
-    res.json({ success: true, token });
+    res.json({ success: true, token,role: user.role, });
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: "Server error" });
@@ -395,7 +396,7 @@ const changeUserRole = async (req, res) => {
     const { role } = req.body;
     const adminId = req.user.id;
 
-    if (!["user", "admin"].includes(role)) {
+    if (!["user", "admin", "staff"].includes(role)) {
       return res
         .status(400)
         .json({ success: false, message: "Invalid role provided" });
@@ -430,48 +431,37 @@ const changeUserRole = async (req, res) => {
 };
 
 // NEW: Update user permissions
+// Update user permissions
 const updateUserPermissions = async (req, res) => {
   try {
     const { userId } = req.params;
     const { permissions } = req.body;
-    const adminId = req.user.id;
 
-    // Check if the requester is an admin
-    const admin = await userModel.findById(adminId);
-    if (!admin || admin.role !== "admin") {
-      return res.status(403).json({ success: false, message: "Access denied. Admin privileges required." });
+    const updatedUser = await userModel.findByIdAndUpdate(
+      userId,
+      { permissions },
+      { new: true }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
-
-    // Find the user to update
-    const user = await userModel.findById(userId);
-    if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
-    }
-
-    // Prevent admins from modifying their own permissions
-    if (String(userId) === String(adminId)) {
-      return res.status(400).json({ success: false, message: "You cannot modify your own permissions" });
-    }
-
-    // Don't allow changing permissions for other admins
-    if (user.role === "admin") {
-      return res.status(400).json({ success: false, message: "Cannot modify admin permissions" });
-    }
-
-    // Update user permissions
-    user.permissions = { ...user.permissions, ...permissions };
-    await user.save();
 
     res.json({ 
       success: true, 
-      message: "User permissions updated successfully",
-      permissions: user.permissions
+      message: 'Permissions updated successfully', 
+      user: updatedUser 
     });
   } catch (error) {
-    console.error("Error updating user permissions:", error);
-    res.status(500).json({ success: false, message: "Server error" });
+    console.error("Error updating permissions:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error updating permissions',
+      error: error.message
+    });
   }
 };
+
 
 // NEW: Get user profile with permissions
 const getUserProfile = async (req, res) => {

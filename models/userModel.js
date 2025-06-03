@@ -57,7 +57,7 @@ const userSchema = new mongoose.Schema(
     facebookId: { type: String, unique: true, sparse: true },
     profilePicture: { type: String },
     wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: "Product" }],
-    role: { type: String, enum: ["user", "admin"], default: "user" },
+    role: { type: String, enum: ["user", "admin", "staff"], default: "user" },
     isAvailable: { type: Boolean, default: false },
     verified: { type: Boolean, default: false }, // Added for phone verification
     registrationComplete: { type: Boolean, default: false }, // Added for step registration

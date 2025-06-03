@@ -1,5 +1,5 @@
 import express from 'express';
-import { loginUser, registerUser, adminLogin, getAllUsers, googleLogin,changeUserRole,completeRegistration,finalizeRegistration } from '../controllers/userController.js';
+import { loginUser, registerUser, adminLogin, getAllUsers, googleLogin,changeUserRole,completeRegistration,finalizeRegistration,updateUserPermissions  } from '../controllers/userController.js';
 import authUser from '../middleware/admin.js'; // Import the authUser middleware
 import {  requestPasswordResetWithOTP,verifyResetOTP,resetPasswordAfterOTP,} from "../controllers/resetPasswordController.js";
 
@@ -30,6 +30,6 @@ userRouter.post('/request-password-reset-otp', requestPasswordResetWithOTP);
 userRouter.post('/verify-reset-otp', verifyResetOTP);
 userRouter.post('/reset-password', resetPasswordAfterOTP);
 
-
+userRouter.put('/update-permissions/:userId', authUser, updateUserPermissions);
 // userRouter.post('/api/user/google-login', googleLogin); // Define the POST route for Google login
 export default userRouter;

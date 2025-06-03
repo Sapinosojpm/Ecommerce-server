@@ -1,6 +1,11 @@
+// routes/aboutRoutes.js
 import express from 'express';
-import { getAboutData, updateAboutData } from '../controllers/aboutController.js';
-import { upload } from '../config/uploadConfig.js';  // Import from the correct config file
+import { 
+  getAboutData, 
+  updateAboutData, 
+  deleteAboutImage 
+} from '../controllers/aboutController.js';
+import { upload } from '../config/uploadConfig.js';
 
 const router = express.Router();
 
@@ -8,6 +13,9 @@ const router = express.Router();
 router.get('/about', getAboutData);
 
 // Route to update About data, including image upload
-router.put('/about', upload.single('image'), updateAboutData); // 'image' should match the form field name
+router.put('/about', upload.single('image'), updateAboutData);
+
+// Route to delete About image
+router.delete('/about/image', deleteAboutImage);
 
 export default router;
