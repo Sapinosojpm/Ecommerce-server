@@ -16,12 +16,11 @@ const createToken = (id) => {
 
 // Google OAuth client
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-
-// Route for user login
+// Enhanced version of your loginUser function with detailed CAPTCHA debugging
 const loginUser = async (req, res) => {
   try {
     const { email, password, captcha } = req.body;
-
+    
     // Validate required fields
     if (!email || !password || !captcha) {
       return res.status(400).json({ 
@@ -30,20 +29,78 @@ const loginUser = async (req, res) => {
       });
     }
 
+    // DEBUG: Log CAPTCHA details
+    console.log("=== CAPTCHA DEBUG ===");
+    console.log("CAPTCHA token received:", captcha?.substring(0, 20) + "...");
+    console.log("Secret key exists:", !!process.env.RECAPTCHA_SECRET_KEY);
+    console.log("Secret key starts with:", process.env.RECAPTCHA_SECRET_KEY?.substring(0, 10) + "...");
+    
     // Verify reCAPTCHA for email login
     const secretKey = process.env.RECAPTCHA_SECRET_KEY;
-    const captchaResponse = await axios.post(
-      "https://www.google.com/recaptcha/api/siteverify",
-      null,
-      {
-        params: { secret: secretKey, response: captcha },
-      }
-    );
+    
+    try {
+      const captchaResponse = await axios.post(
+        "https://www.google.com/recaptcha/api/siteverify",
+        null,
+        {
+          params: { 
+            secret: secretKey, 
+            response: captcha 
+          },
+          timeout: 10000 // 10 second timeout
+        }
+      );
 
-    if (!captchaResponse.data.success) {
+      // DEBUG: Log full CAPTCHA response
+      console.log("Google CAPTCHA response:", captchaResponse.data);
+      console.log("CAPTCHA success:", captchaResponse.data.success);
+      console.log("CAPTCHA error codes:", captchaResponse.data['error-codes']);
+      console.log("CAPTCHA score:", captchaResponse.data.score); // For v3
+      console.log("=====================");
+
+      if (!captchaResponse.data.success) {
+        // More detailed error based on Google's error codes
+        const errorCodes = captchaResponse.data['error-codes'] || [];
+        let errorMessage = "CAPTCHA verification failed";
+        
+        if (errorCodes.includes('missing-input-secret')) {
+          errorMessage = "CAPTCHA configuration error: missing secret key";
+        } else if (errorCodes.includes('invalid-input-secret')) {
+          errorMessage = "CAPTCHA configuration error: invalid secret key";
+        } else if (errorCodes.includes('missing-input-response')) {
+          errorMessage = "CAPTCHA token missing";
+        } else if (errorCodes.includes('invalid-input-response')) {
+          errorMessage = "CAPTCHA token invalid or expired";
+        } else if (errorCodes.includes('timeout-or-duplicate')) {
+          errorMessage = "CAPTCHA token expired or already used";
+        }
+        
+        console.error("CAPTCHA verification failed with codes:", errorCodes);
+        return res.status(400).json({ 
+          success: false, 
+          message: errorMessage,
+          debug: {
+            errorCodes: errorCodes,
+            captchaResponse: captchaResponse.data
+          }
+        });
+      }
+      
+    } catch (captchaError) {
+      console.error("CAPTCHA verification request failed:", captchaError.message);
+      console.error("CAPTCHA error details:", {
+        code: captchaError.code,
+        response: captchaError.response?.data,
+        status: captchaError.response?.status
+      });
+      
       return res.status(400).json({ 
         success: false, 
-        message: "CAPTCHA verification failed" 
+        message: "CAPTCHA verification service unavailable",
+        debug: {
+          error: captchaError.message,
+          code: captchaError.code
+        }
       });
     }
 
@@ -67,7 +124,7 @@ const loginUser = async (req, res) => {
 
     // Generate token with 1 hour expiration
     const token = createToken(user._id);
-
+    
     // Prepare user data to return (excluding sensitive info)
     const userData = {
       _id: user._id,
@@ -97,7 +154,6 @@ const loginUser = async (req, res) => {
     });
   }
 };
-
 // Route for user registration
 const registerUser = async (req, res) => {
   try {
