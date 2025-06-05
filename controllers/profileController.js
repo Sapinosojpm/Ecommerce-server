@@ -17,7 +17,7 @@ router.post(
       }
 
       const user = await User.findByIdAndUpdate(
-        req.body.userId,  // <-- Use req.body.userId here as set by middleware
+        req.userId,  // <-- Use req.body.userId here as set by middleware
         { profilePicture: req.file.path },
         { new: true }
       );
