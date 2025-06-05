@@ -4,6 +4,7 @@ import User from "../models/userModel.js";
 import upload from "../middleware/multer.js"; 
 
 
+
 const router = express.Router();
 
 router.post(
@@ -17,8 +18,8 @@ router.post(
       }
 
       const user = await User.findByIdAndUpdate(
-        req.userId,  // <-- Use req.body.userId here as set by middleware
-        { profilePicture: req.file.path },
+        req.userId,
+        { profilePicture: req.file.secure_url }, // Use secure_url from Cloudinary
         { new: true }
       );
 
@@ -32,11 +33,10 @@ router.post(
       });
     } catch (error) {
       console.error("Error uploading profile picture:", error);
-      res.status(500).json({ message: "Server error" });
+      res.status(500).json({ message: error.message || "Server error" });
     }
   }
 );
-
 // ✅ GET: Fetch user profile
 router.get("/profile", authUser, async (req, res) => {
   try {
