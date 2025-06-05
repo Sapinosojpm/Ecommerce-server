@@ -9,7 +9,7 @@ const router = express.Router();
 router.post(
   "/profile/upload",
   authUser,
-  upload.single("profilePicture"), // Single file upload with field name "profilePicture"
+  upload.single("profilePicture"),
   async (req, res) => {
     try {
       if (!req.file) {
@@ -17,8 +17,8 @@ router.post(
       }
 
       const user = await User.findByIdAndUpdate(
-        req.userId,
-        { profilePicture: req.file.path }, // Cloudinary URL is stored in req.file.path
+        req.body.userId,  // <-- Use req.body.userId here as set by middleware
+        { profilePicture: req.file.path },
         { new: true }
       );
 
