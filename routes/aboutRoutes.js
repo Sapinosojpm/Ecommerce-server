@@ -5,7 +5,7 @@ import {
   updateAboutData, 
   deleteAboutImage 
 } from '../controllers/aboutController.js';
-import { upload } from '../config/uploadConfig.js';
+import upload from "../middleware/multer.js";
 
 const router = express.Router();
 

@@ -1,29 +1,17 @@
 import express from "express";
-import multer from "multer";
-import path from "path";
-import fs from "fs";
+import upload from "../middleware/multer.js"; // Changed to use Cloudinary upload
 import Logo from "../models/logoModel.js";
 
 const router = express.Router();
 
-// Set storage engine for logo uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = "uploads/logos";
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, "logo" + path.extname(file.originalname));
-  },
-});
-
-const upload = multer({ storage });
-
-// Upload or update the logo
+// Upload or update the logo using Cloudinary
 router.post("/upload", upload.single("logo"), async (req, res) => {
   try {
-    const filePath = `/uploads/logos/${req.file.filename}`;
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    const filePath = req.file.path; // Cloudinary provides the URL in req.file.path
 
     let logo = await Logo.findOne();
     if (!logo) {
@@ -33,8 +21,12 @@ router.post("/upload", upload.single("logo"), async (req, res) => {
     }
     await logo.save();
 
-    res.json({ message: "Logo updated successfully!", imageUrl: filePath });
+    res.json({ 
+      message: "Logo updated successfully!", 
+      imageUrl: filePath 
+    });
   } catch (error) {
+    console.error("Error uploading logo:", error);
     res.status(500).json({ error: "Failed to upload logo" });
   }
 });
@@ -43,7 +35,9 @@ router.post("/upload", upload.single("logo"), async (req, res) => {
 router.get("/", async (req, res) => {
   try {
     const logo = await Logo.findOne();
-    res.json({ imageUrl: logo ? logo.imageUrl : "/default-logo.png" });
+    res.json({ 
+      imageUrl: logo ? logo.imageUrl : "/default-logo.png" 
+    });
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch logo" });
   }

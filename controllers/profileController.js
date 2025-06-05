@@ -1,8 +1,41 @@
 import express from "express";
 import authUser from "../middleware/auth.js"; // Ensure authUser extracts req.userId
 import User from "../models/userModel.js";
+import upload from "../middleware/multer.js"; 
+
 
 const router = express.Router();
+
+router.post(
+  "/profile/upload",
+  authUser,
+  upload.single("profilePicture"), // Single file upload with field name "profilePicture"
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      const user = await User.findByIdAndUpdate(
+        req.userId,
+        { profilePicture: req.file.path }, // Cloudinary URL is stored in req.file.path
+        { new: true }
+      );
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      res.status(200).json({
+        profilePictureUrl: user.profilePicture,
+        message: "Profile picture uploaded successfully",
+      });
+    } catch (error) {
+      console.error("Error uploading profile picture:", error);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
 
 // ✅ GET: Fetch user profile
 router.get("/profile", authUser, async (req, res) => {
