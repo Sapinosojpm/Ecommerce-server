@@ -1,8 +1,7 @@
 import express from 'express';
 import { loginUser, registerUser, adminLogin, getAllUsers, googleLogin,changeUserRole,completeRegistration,finalizeRegistration,updateUserPermissions  } from '../controllers/userController.js';
-import authUser from '../middleware/admin.js'; // Import the authUser middleware
 import {  requestPasswordResetWithOTP,verifyResetOTP,resetPasswordAfterOTP,} from "../controllers/resetPasswordController.js";
-
+import authUser from '../middleware/adminAuth.js'; // Import the adminAuth middleware
 const userRouter = express.Router();
 
 // Register a new user

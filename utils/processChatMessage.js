@@ -14,9 +14,9 @@ const openai = new OpenAI({
 console.log("OpenAI API Key Check:", process.env.OPENAI_API_KEY ? "✅ Present" : "❌ Missing");
 
 const getWelcomeMessage = () => {
-  return `👋 Hello! Welcome to our store!  
-I can help you find products, check prices, and answer your questions.  
-Just type what you're looking for! 🔍😊`;
+  return `Hello! Welcome to our store.  
+I'm here to help you find products, check prices, and answer your questions.  
+Just type what you're looking for, and I'll assist you.`;
 };
 
 const fixSpelling = async (query) => {
@@ -35,7 +35,7 @@ const fixSpelling = async (query) => {
 
     return response.choices[0]?.message?.content.trim() || query;
   } catch (error) {
-    console.error("❌ Spelling correction error:", error);
+    console.error("Spelling correction error:", error);
     return query;
   }
 };
@@ -64,7 +64,7 @@ const fetchAdditionalProductInfo = async (productName) => {
 
     return response.choices[0]?.message?.content.trim() || "No additional details found.";
   } catch (error) {
-    console.error("❌ OpenAI API error:", error);
+    console.error("OpenAI API error:", error);
     return "Additional details not available at the moment.";
   }
 };
@@ -73,10 +73,10 @@ const fetchAdditionalProductInfo = async (productName) => {
 const searchProducts = async (query) => {
   try {
     const correctedQuery = await fixSpelling(query);
-    console.log("🔤 Corrected Query:", correctedQuery);
+    console.log("Corrected Query:", correctedQuery);
 
     const keywords = extractKeywords(correctedQuery);
-    if (keywords.length === 0) return "❌ No valid keywords found. Please refine your search.";
+    if (keywords.length === 0) return "No valid keywords found. Please refine your search.";
 
     let searchRegex = keywords.map(word => new RegExp(word, "i"));
 
@@ -91,12 +91,12 @@ const searchProducts = async (query) => {
     if (products.length === 0) {
       const similarProducts = await productModel.find().limit(3);
       return similarProducts.length
-        ? `❌ No matching products found.
+        ? `No matching products found.
 
-🔎 You may be interested in:
+You may be interested in:
 ` +
-          similarProducts.map(p => `📌 *${p.name}* - ₱${p.price.toFixed(2)}`).join("\n")
-        : "❌ No matching products found. Please try another keyword.";
+          similarProducts.map(p => `- ${p.name} - ₱${p.price.toFixed(2)}`).join("\n")
+        : "No matching products found. Please try another keyword.";
     }
 
     // Update ratings for each product before displaying
@@ -110,20 +110,20 @@ const searchProducts = async (query) => {
         ? product.price - (product.price * (product.discount / 100))
         : product.price;
 
-      return `📌 *${product.name}*  
-💰 Price: ₱${product.price.toFixed(2)}  
-🎁 Discount: ${product.discount}% (Final Price: ₱${discountedPrice.toFixed(2)})  
-📦 Stock: ${product.quantity} units  
-⭐ Rating: ${product.averageRating}/5 (${product.totalReviews} reviews)  
-📂 Category: ${product.category}  
-📝 Description: ${product.description}  
-🌐 More Info: ${extraInfo}`;
+      return `Product: ${product.name}  
+Price: ₱${product.price.toFixed(2)}  
+Discount: ${product.discount}% (Final Price: ₱${discountedPrice.toFixed(2)})  
+Stock: ${product.quantity} units  
+Rating: ${product.averageRating}/5 (${product.totalReviews} reviews)  
+Category: ${product.category}  
+Description: ${product.description}  
+More Info: ${extraInfo}`;
     }));
 
     return productDetails.join("\n\n");
   } catch (error) {
-    console.error("❌ Product search error:", error);
-    return "❌ Error searching for products.";
+    console.error("Product search error:", error);
+    return "Error searching for products.";
   }
 };
 
@@ -133,11 +133,11 @@ const processMessage = async (query, isFirstInteraction = false) => {
   }
 
   const commonReplies = {
-    "how are you": "I'm just a bot, but I'm always ready to assist you! 😊",
-    "what's your name": "I'm your AI Assistant, here to help with your shopping needs! 🛍️",
-    "thank you": "You're welcome! Let me know if you need anything else. 😊",
-    "bye": "Goodbye! Have a great day! 👋",
-    "who are you": "I'm your virtual shopping assistant, here to help with product searches and store inquiries!"
+    "how are you": "I'm here to assist you anytime you need.",
+    "what's your name": "I'm your AI shopping assistant, ready to help.",
+    "thank you": "You're welcome. Let me know if you need anything else.",
+    "bye": "Goodbye! Have a great day.",
+    "who are you": "I'm your virtual shopping assistant, here to help with product searches and store information."
   };
 
   const lowerQuery = query.toLowerCase();
@@ -149,7 +149,7 @@ const processMessage = async (query, isFirstInteraction = false) => {
 };
 
 export const handleChat = async (req, res) => {
-  console.log("📩 Request received at /api/chat");
+  console.log("Request received at /api/chat");
 
   const { query, userId, isFirstInteraction } = req.body;
   
@@ -164,12 +164,12 @@ export const handleChat = async (req, res) => {
         timestamp: new Date()
       });
       await chat.save();
-      console.log("💾 Chat saved to database");
+      console.log("Chat saved to database");
     }
 
     res.json({ response });
   } catch (error) {
-    console.error("❌ Controller error:", error);
+    console.error("Controller error:", error);
     res.status(500).json({ response: "Error processing your message." });
   }
 };

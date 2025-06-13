@@ -81,10 +81,9 @@ const addToCart = async (req, res) => {
 };
 
 // update user cart
-// In cartController.js
 const updateCart = async (req, res) => {
   try {
-    const { userId, itemId, quantity } = req.body;
+    const { userId, itemId, quantity, baseProductId } = req.body;
 
     if (!userId || !itemId || quantity === undefined) {
       return res
@@ -101,20 +100,24 @@ const updateCart = async (req, res) => {
 
     let cartData = userData.cartData || {};
 
+    // Find the cart item by composite key (itemId) or baseProductId
+    const cartItemKey = Object.keys(cartData).find(key => 
+      key === itemId || key.startsWith(`${baseProductId}-`)
+    );
+
+    if (!cartItemKey) {
+      return res.status(404).json({
+        success: false,
+        message: "Item not found in cart"
+      });
+    }
+
     if (quantity > 0) {
-      if (cartData[itemId]) {
-        cartData[itemId] = {
-          quantity,
-          variations: cartData[itemId].variations || null,
-        };
-      } else {
-        cartData[itemId] = {
-          quantity,
-          variations: null,
-        };
-      }
+      // Update the existing item's quantity
+      cartData[cartItemKey].quantity = quantity;
     } else {
-      delete cartData[itemId];
+      // Remove item if quantity is 0 or less
+      delete cartData[cartItemKey];
     }
 
     await userModel.findByIdAndUpdate(
@@ -122,12 +125,6 @@ const updateCart = async (req, res) => {
       { $set: { cartData } },
       { new: true }
     );
-
-    // Emit cart update event
-    const io = req.app.get('socketio');
-    if (io) {
-      io.to(`cart-${userId}`).emit('cart-updated', cartData);
-    }
 
     res.json({ success: true, message: "Cart updated", cartData });
   } catch (error) {

@@ -95,7 +95,7 @@ console.log('Mediasoup worker and router created');
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: ['https://ecommerce-frontend-peach-rho.vercel.app','https://vercel.com/john-paul-milles-projects/ecommerce-frontend/B2hRNTZZbdUhJmHvahuPbQToMxBf','https://ecommerce-frontend-admin-cyan.vercel.app','http://localhost:5174', 'http://localhost:5173', 'http://localhost:4000', '*'],
+    origin: ['https://ecommerce-frontend-peach-rho.vercel.app','https://vercel.com/john-paul-milles-projects/ecommerce-frontend/B2hRNTZZbdUhJmHvahuPbQToMxBf','https://ecommerce-frontend-admin-cyan.vercel.app','http://localhost:5174', 'http://localhost:5173', 'http://localhost:4000','http://localhost:80', 'http://localhost:81', '*'],
     methods: ['GET', 'POST'],
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization']

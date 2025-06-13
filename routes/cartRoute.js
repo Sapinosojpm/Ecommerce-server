@@ -14,7 +14,7 @@ cartRouter.post('/add', authUser, (req, res, next) => {
     next();
 }, addToCart);
 
-cartRouter.post('/update', authUser, (req, res, next) => {
+cartRouter.put('/update', authUser, (req, res, next) => {
     console.log("🚀 UPDATE CART route hit");
     next();
 }, updateCart);
