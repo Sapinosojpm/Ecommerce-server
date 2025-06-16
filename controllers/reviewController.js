@@ -33,3 +33,20 @@ export const addReview = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// Delete one or many reviews by IDs
+export const deleteReviews = async (req, res) => {
+  try {
+    const { ids } = req.body; // Expecting array of review IDs to delete
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: "No review IDs provided" });
+    }
+
+    const result = await Review.deleteMany({ _id: { $in: ids } });
+    res.json({ success: true, message: `${result.deletedCount} review(s) deleted` });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: "Failed to delete reviews" });
+  }
+};

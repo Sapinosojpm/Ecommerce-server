@@ -13,7 +13,8 @@ import {
   updateVAT,
   bulkUploadProducts,
   updateAskForDiscount,
-  updateProductVariationsAdmin
+  updateProductVariationsAdmin,
+  updateProductImages
 } from '../controllers/productController.js';
 import upload from '../middleware/multer.js';
 import adminAuth from '../middleware/adminAuth.js';
@@ -102,5 +103,19 @@ productRouter.post('/bulk', adminAuth, bulkUploadProducts);
 productRouter.put('/updateVariations/:id', adminAuth, updateProductVariationsAdmin);
 // Update askForDiscount for a product
 productRouter.put("/updateAskForDiscount/:id", adminAuth, updateAskForDiscount);
+
+// Update product images
+productRouter.put(
+  '/updateImages/:id',
+  adminAuth,
+  upload.fields([
+    { name: 'image1', maxCount: 1 },
+    { name: 'image2', maxCount: 1 },
+    { name: 'image3', maxCount: 1 },
+    { name: 'image4', maxCount: 1 },
+    { name: 'video', maxCount: 1 }
+  ]),
+  updateProductImages
+);
 
 export default productRouter;

@@ -1,11 +1,17 @@
 import express from "express";
 import authUser from "../middleware/auth.js"; // Ensure authUser extracts req.userId
 import User from "../models/userModel.js";
-import upload from "../middleware/multer.js"; 
-
-
+import upload from "../middleware/multer.js";
+import { v2 as cloudinary } from 'cloudinary';
 
 const router = express.Router();
+
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_SECRET_KEY,
+});
 
 router.post(
   "/profile/upload",
@@ -17,9 +23,16 @@ router.post(
         return res.status(400).json({ message: "No file uploaded" });
       }
 
+      // Upload to Cloudinary
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: 'profile_pictures',
+        resource_type: 'image',
+      });
+
+      // Update user profile with Cloudinary URL
       const user = await User.findByIdAndUpdate(
         req.userId,
-        { profilePicture: req.file.secure_url }, // Use secure_url from Cloudinary
+        { profilePicture: result.secure_url },
         { new: true }
       );
 
@@ -37,6 +50,7 @@ router.post(
     }
   }
 );
+
 // ✅ GET: Fetch user profile
 router.get("/profile", authUser, async (req, res) => {
   try {
@@ -88,9 +102,6 @@ router.put("/profile", authUser, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
-
-
-
 
 // ✅ GET: Fetch user details (if different from profile)
 router.get("/details", authUser, async (req, res) => {

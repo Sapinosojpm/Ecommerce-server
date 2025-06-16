@@ -35,7 +35,6 @@ import jobRoutes from "./routes/jobRoutes.js";
 import youtubeRoutes from './routes/youtubeRoutes.js';
 import adminDiscountRoutes from './routes/adminDiscountRoutes.js';
 import { EventEmitter } from 'events';
-import authRoutes from "./routes/authRoutes.js";
 import faqRoutes from "./routes/faq.js";
 import adminRouter from './routes/userRoute.js';
 import facebookRouter from './routes/authFbRoutes.js';
@@ -79,6 +78,8 @@ import {
   cleanupSocketResources
 } from './mediasoupSetup.js';
 import returnRouter from './routes/returnRoute.js';
+import googleAuthRouter from './routes/googleAuthRoutes.js';
+
 
 dotenv.config();
 
@@ -95,13 +96,10 @@ console.log('Mediasoup worker and router created');
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: ['https://ecommerce-frontend-peach-rho.vercel.app','https://vercel.com/john-paul-milles-projects/ecommerce-frontend/B2hRNTZZbdUhJmHvahuPbQToMxBf','https://ecommerce-frontend-admin-cyan.vercel.app','http://localhost:5174', 'http://localhost:5173', 'http://localhost:4000','http://localhost:80', 'http://localhost:81', '*'],
-    methods: ['GET', 'POST'],
+    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    methods: ["GET", "POST"],
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization']
   },
-  transports: ['websocket', 'polling'],
-  allowUpgrades: true
 });
 
 // Set __dirname for ES modules
@@ -135,16 +133,24 @@ if (!fs.existsSync(uploadPath)) {
 
 // Middleware
 app.use(express.json());
+const allowedOrigins = [
+  process.env.FRONTEND_URL || "http://localhost:5173",
+  "http://localhost:5174",
+];
+
 app.use(cors({
-  origin: ['https://ecommerce-frontend-peach-rho.vercel.app','https://ecommerce-frontend-admin-cyan.vercel.app','https://ecommerce-frontend-yoevqhnww-john-paul-milles-projects.vercel.app','*','http://localhost:5174', 'http://localhost:5173', 'http://localhost:4000'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
+      return callback(new Error("Not allowed by CORS"));
+    }
+  },
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'token']
 }));
-// Add these near your other middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // For form data
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
 
 
 // Chat system variables
@@ -674,9 +680,6 @@ app.use('/api/subscribers', subscriberRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api", discountRoutes);
 app.use("/api/user", facebookRouter);
-app.use("/api/auth", authRoutes);
-app.use('/api', chatRoutes);
-app.use('/api', AIChatRouter);
 app.use("/api", eventRoutes);
 app.use('/api', uploadRoutes);
 app.use('/api', dealRoutes);
@@ -704,98 +707,10 @@ app.use('/api', adminRouter);
 app.use(paymentRoutes);
 app.use("/api/paymongo/webhook", express.json());
 app.use("/api/voucher-amounts", VoucherAmountRoutes);
+app.use("/api", AIChatRouter)
 
-// Google Login Route
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-
-app.post('/api/user/google-login', async (req, res) => {
-  const { credential } = req.body;
-  try {
-    const ticket = await client.verifyIdToken({
-      idToken: credential,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
-
-    const payload = ticket.getPayload();
-    const { email, given_name, family_name } = payload;
-
-    let user = await userModel.findOne({ email });
-
-    if (!user) {
-      user = new userModel({
-        firstName: given_name,
-        lastName: family_name,
-        email,
-        role: "user",
-      });
-      await user.save();
-    }
-    
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
-
-    res.json({ success: true, token, role: user.role });
-  } catch (error) {
-    console.error('Google login error:', error);
-    res.status(400).json({ success: false, message: 'Google login failed!' });
-  }
-});
-
-app.post("/auth/google-signup", async (req, res) => {
-  const { token } = req.body;
-  try {
-      const ticket = await client.verifyIdToken({
-          idToken: token,
-          audience: process.env.GOOGLE_CLIENT_ID,
-      });
-
-      const { sub, name, email, picture } = ticket.getPayload();
-
-      let user = await userModel.findOne({ googleId: sub });
-
-      if (!user) {
-          user = new userModel({ googleId: sub, name, email, picture });
-          await user.save();
-      }
-
-      res.json({ success: true, user });
-  } catch (error) {
-      res.status(401).json({ success: false, message: "Invalid token" });
-  }
-});
-
-app.post("/api/paymongo/webhook", async (req, res) => {
-  try {
-      const event = req.body;
-
-      if (event.data && event.data.attributes.status === "paid") {
-          const sourceId = event.data.id;
-          const userId = event.data.attributes.metadata.userId;
-          
-          const user = await userModel.findById(userId);
-          if (!user) return res.status(404).json({ message: "User not found" });
-
-          const newOrder = new Order({
-              user: userId,
-              products: user.cart,
-              totalAmount: event.data.attributes.amount / 100,
-              paymentStatus: "paid",
-              paymentId: sourceId,
-          });
-
-          await newOrder.save();
-          user.cart = [];
-          await user.save();
-
-          io.to(userId).emit('newOrder', newOrder);
-          return res.status(200).json({ message: "Order placed successfully!" });
-      }
-
-      res.sendStatus(200);
-  } catch (error) {
-      console.error("❌ Webhook Error:", error);
-      res.status(500).json({ error: "Webhook processing failed" });
-  }
-});
+// Use Google authentication routes
+app.use('/api/auth', googleAuthRouter);
 
 // Update the server listen function at the bottom of your file
 // Replace the existing httpServer.listen() call with this:

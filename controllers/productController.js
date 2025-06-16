@@ -650,7 +650,85 @@ const updateProductVariationsAdmin = async (req, res) => {
   }
 };
 
+// Update product images
+const updateProductImages = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get existing product
+    const product = await productModel.findById(id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found." });
+    }
 
+    // Handle file uploads
+    const image1 = req.files.image1 && req.files.image1[0];
+    const image2 = req.files.image2 && req.files.image2[0];
+    const image3 = req.files.image3 && req.files.image3[0];
+    const image4 = req.files.image4 && req.files.image4[0];
+    const video = req.files.video && req.files.video[0];
+    
+    const newImages = [image1, image2, image3, image4].filter((image) => image !== undefined);
+    
+    // If no new images are uploaded, keep existing images
+    if (newImages.length === 0) {
+      return res.status(200).json({ 
+        success: true, 
+        message: "No new images uploaded.",
+        product 
+      });
+    }
+
+    // Upload new images to Cloudinary
+    const newImageUrls = await Promise.all(
+      newImages.map(async (item) => {
+        try {
+          const result = await cloudinary.uploader.upload(item.path, { resource_type: "image" });
+          return result.secure_url;
+        } catch (error) {
+          console.error(`Error uploading image: ${item.path}`, error);
+          throw new Error("Image upload failed.");
+        }
+      })
+    );
+
+    // Upload new video if provided
+    let videoUrl = product.video;
+    if (video) {
+      try {
+        const result = await cloudinary.uploader.upload(video.path, { resource_type: "video" });
+        videoUrl = result.secure_url;
+      } catch (error) {
+        console.error("Error uploading video:", error);
+        throw new Error("Video upload failed.");
+      }
+    }
+
+    // Update product with new images
+    const updatedProduct = await productModel.findByIdAndUpdate(
+      id,
+      { 
+        $set: { 
+          image: newImageUrls,
+          video: videoUrl
+        } 
+      },
+      { new: true }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Product images updated successfully.",
+      product: updatedProduct
+    });
+  } catch (error) {
+    console.error("Error updating product images:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error. Please try again later.",
+    });
+  }
+};
 
 export {
   updateProductVariations,
@@ -667,4 +745,5 @@ export {
   updateVAT,
   bulkUploadProducts,
   updateProductVariationsAdmin,
+  updateProductImages
 };

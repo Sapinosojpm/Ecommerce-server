@@ -3,7 +3,6 @@ import validator from "validator";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import userModel from "../models/userModel.js";
-import { OAuth2Client } from "google-auth-library";
 import VoucherAmountModel from "../models/VoucherAmountModel.js";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
@@ -14,8 +13,6 @@ const createToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "4h" });
 };
 
-// Google OAuth client
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 // Enhanced version of your loginUser function with detailed CAPTCHA debugging
 const loginUser = async (req, res) => {
   try {
@@ -29,15 +26,17 @@ const loginUser = async (req, res) => {
       });
     }
 
-    // DEBUG: Log CAPTCHA details
-    console.log("=== CAPTCHA DEBUG ===");
-    console.log("CAPTCHA token received:", captcha?.substring(0, 20) + "...");
-    console.log("Secret key exists:", !!process.env.RECAPTCHA_SECRET_KEY);
-    console.log("Secret key starts with:", process.env.RECAPTCHA_SECRET_KEY?.substring(0, 10) + "...");
-    
     // Verify reCAPTCHA for email login
     const secretKey = process.env.RECAPTCHA_SECRET_KEY;
     
+    if (!secretKey) {
+      console.error("RECAPTCHA_SECRET_KEY is not configured");
+      return res.status(500).json({
+        success: false,
+        message: "CAPTCHA configuration error"
+      });
+    }
+
     try {
       const captchaResponse = await axios.post(
         "https://www.google.com/recaptcha/api/siteverify",
@@ -51,15 +50,7 @@ const loginUser = async (req, res) => {
         }
       );
 
-      // DEBUG: Log full CAPTCHA response
-      console.log("Google CAPTCHA response:", captchaResponse.data);
-      console.log("CAPTCHA success:", captchaResponse.data.success);
-      console.log("CAPTCHA error codes:", captchaResponse.data['error-codes']);
-      console.log("CAPTCHA score:", captchaResponse.data.score); // For v3
-      console.log("=====================");
-
       if (!captchaResponse.data.success) {
-        // More detailed error based on Google's error codes
         const errorCodes = captchaResponse.data['error-codes'] || [];
         let errorMessage = "CAPTCHA verification failed";
         
@@ -73,34 +64,32 @@ const loginUser = async (req, res) => {
           errorMessage = "CAPTCHA token invalid or expired";
         } else if (errorCodes.includes('timeout-or-duplicate')) {
           errorMessage = "CAPTCHA token expired or already used";
+        } else if (errorCodes.includes('bad-request')) {
+          errorMessage = "Invalid CAPTCHA request";
         }
         
-        console.error("CAPTCHA verification failed with codes:", errorCodes);
         return res.status(400).json({ 
           success: false, 
           message: errorMessage,
-          debug: {
-            errorCodes: errorCodes,
-            captchaResponse: captchaResponse.data
-          }
+          errorCode: errorCodes[0] // Send the first error code for client-side handling
+        });
+      }
+
+      // Check CAPTCHA score for v3 (if using v3)
+      if (captchaResponse.data.score !== undefined && captchaResponse.data.score < 0.5) {
+        return res.status(400).json({
+          success: false,
+          message: "CAPTCHA verification failed: suspicious activity detected"
         });
       }
       
     } catch (captchaError) {
       console.error("CAPTCHA verification request failed:", captchaError.message);
-      console.error("CAPTCHA error details:", {
-        code: captchaError.code,
-        response: captchaError.response?.data,
-        status: captchaError.response?.status
-      });
       
       return res.status(400).json({ 
         success: false, 
-        message: "CAPTCHA verification service unavailable",
-        debug: {
-          error: captchaError.message,
-          code: captchaError.code
-        }
+        message: "CAPTCHA verification service unavailable. Please try again.",
+        error: captchaError.message
       });
     }
 
@@ -134,7 +123,7 @@ const loginUser = async (req, res) => {
       role: user.role,
       phone: user.phone,
       phoneVerified: user.phoneVerified,
-      cartData: user.cartData || {} // Ensure cartData is always returned as object
+      cartData: user.cartData || {}
     };
 
     res.status(200).json({ 
@@ -142,7 +131,7 @@ const loginUser = async (req, res) => {
       token, 
       role: user.role, 
       userId: user._id,
-      user: userData // Include complete user data
+      user: userData
     });
 
   } catch (error) {
@@ -245,7 +234,7 @@ const registerUser = async (req, res) => {
 };
 
 // Finalize registration
-export const finalizeRegistration = async (req, res) => {
+const finalizeRegistration = async (req, res) => {
   try {
     const { tempUserData } = req.body;
 
@@ -352,47 +341,6 @@ const completeRegistration = async (req, res) => {
       message: "Registration completion failed",
       error: error.message,
     });
-  }
-};
-
-// Google login handler
-const googleLogin = async (req, res) => {
-  const { token } = req.body;
-
-  try {
-    if (!token) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Google token is required!" });
-    }
-
-    const ticket = await client.verifyIdToken({
-      idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
-
-    const payload = ticket.getPayload();
-
-    let user = await userModel.findOne({ email: payload.email });
-
-    if (!user) {
-      user = new userModel({
-        firstName: payload.given_name,
-        lastName: payload.family_name,
-        email: payload.email,
-        googleId: payload.sub,
-        profilePicture: payload.picture,
-        role: "user",
-        registrationComplete: true,
-      });
-      await user.save();
-    }
-
-    const authToken = createToken(user._id);
-    res.json({ success: true, token: authToken, role: user.role, userId: user._id });
-  } catch (error) {
-    console.error("Google Login Error:", error);
-    res.status(400).json({ success: false, message: "Google login failed!" });
   }
 };
 
@@ -552,11 +500,11 @@ export {
   loginUser,
   registerUser,
   getAllUsers,
-  googleLogin,
   changeUserRole,
   adminLogin,
   completeRegistration,
-  updateUserPermissions, // NEW
-  getUserProfile, // NEW
+  updateUserPermissions,
+  getUserProfile,
   createToken,
+  finalizeRegistration
 };
