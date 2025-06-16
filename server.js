@@ -137,7 +137,8 @@ const allowedOrigins = [
   process.env.FRONTEND_URL || "http://localhost:5173",
   "http://localhost:5174",
   "https://ecommerce-frontend-peach-rho.vercel.app",
-  "https://ecommerce-frontend-admin-cyan.vercel.app"
+  "https://ecommerce-frontend-admin-cyan.vercel.app",
+  "https://ecommerce-frontend-git-main-john-paul-milles-projects.vercel.app"
 ];
 
 app.use(
