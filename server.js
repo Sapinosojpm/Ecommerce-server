@@ -87,6 +87,15 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 4000;
 
+// Define allowed origins
+const allowedOrigins = [
+  process.env.FRONTEND_URL || "http://localhost:5173",
+  "http://localhost:5174",
+  "https://ecommerce-frontend-six-tau.vercel.app",
+  "https://ecommerce-frontend-admin-tawny.vercel.app",
+  "https://ecommerce-frontend-git-main-john-paul-milles-projects.vercel.app"
+];
+
 // Create Mediasoup worker and router
 await createMediasoupWorker();
 await createMediasoupRouter();
@@ -133,13 +142,6 @@ if (!fs.existsSync(uploadPath)) {
 
 // Middleware
 app.use(express.json());
-const allowedOrigins = [
-  process.env.FRONTEND_URL || "http://localhost:5173",
-  "http://localhost:5174",
-  "https://ecommerce-frontend-six-tau.vercel.app",
-  "https://ecommerce-frontend-admin-tawny.vercel.app",
-  "https://ecommerce-frontend-git-main-john-paul-milles-projects.vercel.app"
-];
 
 app.use(
   cors({
@@ -159,8 +161,6 @@ app.use(
     credentials: true,
   })
 );
-
-
 
 // Chat system variables
 const activeAdmins = new Set();
