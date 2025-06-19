@@ -19,10 +19,6 @@ import {
 import adminAuth from '../middleware/adminAuth.js';
 import authUser from '../middleware/auth.js';
 import {upload} from '../config/uploadConfig.js';
-import { createTracking, 
-  getTracking, 
-  updateTracking, 
-  getCarriers } from '../controllers/trackingController.js'
 
 const orderRouter = express.Router();
 
@@ -51,10 +47,4 @@ orderRouter.post('/:id/pay', authUser, processPayment);
 orderRouter.post('/:id/verify-payment', authUser, verifyPayment);
 // Add to orderRoute.js
 orderRouter.post('/scan-qr', adminAuth, scanQrAndUpdateStatus);
-
-// Tracking routes
-orderRouter.post('/:id/tracking', adminAuth, createTracking);
-orderRouter.get('/:id/tracking', authUser, getTracking);
-orderRouter.post('/tracking/webhook', express.json(), updateTracking); // For TrackingMore webhooks
-orderRouter.get('/carriers', adminAuth, getCarriers);
 export default orderRouter;

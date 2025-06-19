@@ -69,125 +69,26 @@ const placeOrder = async (req, res) => {
       voucherCode,
       variationAdjustment,
       variationDetails,
-      variations
+      variations,
+      shippingFee
     } = req.body;
 
     if (amount <= 0) {
       return res.status(400).json({ success: false, message: "Invalid total amount." });
     }
 
-    const safeVariation = typeof variationAdjustment === 'number' ? variationAdjustment : 0;
-    const adjustedAmount = Math.max(amount + safeVariation - (voucherAmount || 0), 0);
-    let totalAmount = adjustedAmount;
-
-    if (discountCode) {
-      const subscriber = await Subscriber.findOne({ discountCode }).session(session);
-
-      if (!subscriber || subscriber.isUsed) {
-        await session.abortTransaction();
-        return res.json({ success: false, message: "Invalid or already used discount code." });
-      }
-
-      await Subscriber.findByIdAndUpdate(
-        subscriber._id,
-        { $unset: { discountCode: 1 }, isUsed: true },
-        { session }
-      );
-    }
-
-    for (const item of items) {
-      console.log("📦 Processing order item:", item);
-
-      const product = await productModel.findById(item.productId);
-      if (!product) {
-        console.warn(`⚠️ Product not found: ${item.productId}`);
-        continue;
-      }
-
-      console.log("📦 Found product:", product);
-
-      if (item.variationId) {
-        let variationUpdated = false;
-
-        // Checking product variations
-        for (let variation of product.variations) {
-          console.log(`🔍 Checking variation: ${variation.name}`);
-
-          // Find the variation option by ID
-          const option = variation.options.find(
-            (opt) => opt._id.toString() === item.variationId.toString()
-          );
-
-          if (option) {
-            console.log(
-              `🔍 Found option: ${option.name}, Available quantity: ${option.quantity}`
-            );
-
-            // Check if there's enough stock
-            if (option.quantity >= item.quantity) {
-              option.quantity -= item.quantity; // Deduct the quantity from selected option
-              await product.save(); // Save product after stock deduction
-              console.log(
-                `📦 Stock updated for variation: ${variation.name} - option: ${option.name}. Quantity left: ${option.quantity}`
-              );
-
-              // If stock hits 0, send instruction message
-              if (option.quantity === 0) {
-                console.log(
-                  `⚠️ Stock for variation: ${variation.name} - option: ${option.name} has hit 0. Please restock.`
-                );
-              }
-
-              variationUpdated = true;
-            } else {
-              console.warn(
-                `⚠️ Not enough stock for variation: ${variation.name} - option: ${option.name}. Available: ${option.quantity}, Requested: ${item.quantity}`
-              );
-            }
-            break;
-          } else {
-            console.warn(
-              `⚠️ Variation option not found for variation: ${variation.name}, option ID: ${item.variationId}`
-            );
-          }
-        }
-
-        if (!variationUpdated) {
-          console.warn(
-            `⚠️ Variation option ID not matched or insufficient stock for variation: ${item.variationId}`
-          );
-        }
-      } else {
-        // No variation, deduct from base product stock
-        console.log(`🔍 Current stock for ${product.name}: ${product.variations[0].options[0].quantity}`);
-        console.log(`🔍 Quantity to deduct: ${item.quantity}`);
-
-        if (product.variations[0].options[0].quantity >= item.quantity) {
-          product.variations[0].options[0].quantity -= item.quantity; // Deduct from base stock
-          await product.save(); // Save product after stock deduction
-          console.log(
-            `📦 Base stock updated for product: ${product.name}. Quantity left: ${product.variations[0].options[0].quantity}`
-          );
-
-          // If stock hits 0, send instruction message
-          if (product.variations[0].options[0].quantity === 0) {
-            console.log(
-              `⚠️ Stock for product: ${product.name} has hit 0. Please restock.`
-            );
-          }
-        } else {
-          console.warn(
-            `⚠️ Not enough base stock for product: ${product.name}. Available: ${product.variations[0].options[0].quantity}, Requested: ${item.quantity}`
-          );
-        }
-      }
-    }
+    // Debug logs for backend order calculation
+    console.log('==== BACKEND ORDER DEBUG ====');
+    console.log('Amount received from frontend (should be item total after discount):', amount);
+    console.log('ShippingFee received from frontend:', shippingFee);
+    console.log('Final order total (amount + shippingFee):', amount + (shippingFee || 0));
+    console.log('============================');
 
     const orderData = {
       userId,
       items,
       address,
-      amount: totalAmount,
+      amount: amount + (shippingFee || 0),
       paymentMethod: "COD",
       payment: false,
       date: Date.now(),
@@ -197,6 +98,7 @@ const placeOrder = async (req, res) => {
       orderNumber: generateOrderNumber(),
       variationDetails: variationDetails || null,
       variations: variations || null,
+      shippingFee: shippingFee || 0,
     };
 
     const newOrder = new orderModel(orderData);
@@ -240,7 +142,7 @@ const placeOrder = async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
-    return res.json({ success: true, message: "Order Placed", order: newOrder,  jtTracking: newOrder.jtTrackingNumber });
+    return res.json({ success: true, message: "Order Placed", order: newOrder, jtTracking: newOrder.jtTrackingNumber, shippingFee: newOrder.shippingFee });
 
   } catch (error) {
     await session.abortTransaction();
@@ -261,29 +163,25 @@ const placeOrderStripe = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid total amount." });
     }
 
-    const safeVariation = typeof variationAdjustment === 'number' ? variationAdjustment : 0;
-    const adjustedAmount = Math.max(amount + safeVariation - (voucherAmount || 0), 0);
-    const totalAmount = adjustedAmount;
-
-    // 🔥 Add orderNumber here
     const orderData = {
       userId,
       items,
       address,
-      amount: totalAmount,
+      amount: amount + (shippingFee || 0),
       paymentMethod: "Stripe",
       payment: false,
       date: Date.now(),
       voucherAmount: voucherAmount || 0,
       voucherCode: voucherCode || null,
-      orderNumber: generateOrderNumber(), // 🔥 Add this
+      orderNumber: generateOrderNumber(),
+      shippingFee: 0, // Assuming no shipping fee for Stripe orders
     };
 
     const newOrder = new orderModel(orderData);
     await newOrder.save();
 
     const line_items = items.map((item) => {
-      const itemPrice = Math.round((adjustedAmount / items.length) * 100);
+      const itemPrice = Math.round((amount / items.length) * 100);
       return {
         price_data: {
           currency: "PHP",

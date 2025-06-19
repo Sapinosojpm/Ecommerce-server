@@ -38,7 +38,6 @@ import { EventEmitter } from 'events';
 import faqRoutes from "./routes/faq.js";
 import adminRouter from './routes/userRoute.js';
 import facebookRouter from './routes/authFbRoutes.js';
-import orderImportRouter from './routes/importOrderRoutes.js';
 import discountRoutes from "./routes/discountRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import subscriberRoutes from './routes/subscriberRoutes.js';
@@ -79,7 +78,7 @@ import {
 } from './mediasoupSetup.js';
 import returnRouter from './routes/returnRoute.js';
 import googleAuthRouter from './routes/googleAuthRoutes.js';
-
+import trackingRoutes from './routes/trackingRoutes.js';
 
 dotenv.config();
 
@@ -666,6 +665,7 @@ async function setupChangeStreams() {
 setupChangeStreams().catch(console.error);
 
 // Use routes
+app.use('/api/tracking', trackingRoutes);
 app.use('/api/chat', liveChatRoutes);
 app.use('/api/returns', returnRouter);
 app.use('/api/livestream', liveStreamRoutes); 
