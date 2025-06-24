@@ -156,7 +156,7 @@ const placeOrder = async (req, res) => {
 
 const placeOrderStripe = async (req, res) => {
   try {
-    const { userId, items, amount, address, voucherAmount, voucherCode, variationAdjustment } = req.body;
+    const { userId, items, amount, address, voucherAmount, voucherCode, variationAdjustment, shippingFee } = req.body;
     const { origin } = req.headers;
 
     if (amount <= 0) {
@@ -174,7 +174,7 @@ const placeOrderStripe = async (req, res) => {
       voucherAmount: voucherAmount || 0,
       voucherCode: voucherCode || null,
       orderNumber: generateOrderNumber(),
-      shippingFee: 0, // Assuming no shipping fee for Stripe orders
+      shippingFee: shippingFee || 0,
     };
 
     const newOrder = new orderModel(orderData);

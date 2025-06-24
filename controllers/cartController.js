@@ -34,11 +34,8 @@ const addToCart = async (req, res) => {
       });
     }
 
-    // Create a unique cart key based on item ID and selected variations
-    const variationKey = Object.entries(selectedVariations)
-      .map(([k, v]) => `${k}:${v.name}`)
-      .join('|');
-    const cartKey = variationKey ? `${itemId}-${variationKey}` : itemId;
+    // Use the itemId from the frontend as the cart key
+    const cartKey = itemId;
 
     // Add or update item in cart
     if (cartData[cartKey]) {
@@ -83,7 +80,7 @@ const addToCart = async (req, res) => {
 // update user cart
 const updateCart = async (req, res) => {
   try {
-    const { userId, itemId, quantity, baseProductId } = req.body;
+    const { userId, itemId, quantity } = req.body;
 
     if (!userId || !itemId || quantity === undefined) {
       return res
@@ -100,12 +97,10 @@ const updateCart = async (req, res) => {
 
     let cartData = userData.cartData || {};
 
-    // Find the cart item by composite key (itemId) or baseProductId
-    const cartItemKey = Object.keys(cartData).find(key => 
-      key === itemId || key.startsWith(`${baseProductId}-`)
-    );
+    // Use the itemId from the frontend as the cart key
+    const cartItemKey = itemId;
 
-    if (!cartItemKey) {
+    if (!cartItemKey || !cartData[cartItemKey]) {
       return res.status(404).json({
         success: false,
         message: "Item not found in cart"
@@ -210,6 +205,9 @@ const removeFromCart = async (req, res) => {
   try {
     const { userId, itemId } = req.body;
 
+    // Debug log to check if userId and itemId are received
+    console.log('removeFromCart called with:', { userId, itemId });
+
     if (!userId || !itemId) {
       return res.status(400).json({
         success: false,
@@ -227,22 +225,18 @@ const removeFromCart = async (req, res) => {
 
     let cartData = userData.cartData || {};
     
-    // Check if we're dealing with variation-based keys
-    const itemKeys = Object.keys(cartData).filter(key => 
-      key.startsWith(itemId) // Include both base item and variations
-    );
+    // Debug logs to help diagnose 404 issue
+    console.log('itemId from frontend:', itemId);
+    console.log('cartData keys:', Object.keys(cartData));
 
-    if (itemKeys.length === 0) {
+    // Remove only the exact item key
+    if (!cartData[itemId]) {
       return res.status(404).json({
         success: false,
         message: "Item not found in cart"
       });
     }
-
-    // Remove all variations of this item
-    itemKeys.forEach(key => {
-      delete cartData[key];
-    });
+    delete cartData[itemId];
 
     await userModel.findByIdAndUpdate(
       userId,

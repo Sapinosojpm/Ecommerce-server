@@ -15,6 +15,7 @@ const authUser = async (req, res, next) => {
         const token_decode = jwt.verify(token, process.env.JWT_SECRET);
         req.userEmail = token_decode.email; // Extract user email from token
         req.body.userId = token_decode.id;  // Extract user ID from token
+        req.userId = token_decode.id;       // Set req.userId for all controllers
         next();
     } catch (error) {
         console.error('Token verification error:', error);

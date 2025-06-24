@@ -28,7 +28,7 @@ const router = express.Router();
 // GET: Fetch user details
 router.get('/profile', authUser, async (req, res) => {
   try {
-    const user = await User.findById(req.body.userId); // ✅ Use `req.user.id` from auth middleware
+    const user = await User.findById(req.userId); // Use req.userId from auth middleware
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
@@ -47,7 +47,7 @@ router.post('/profile/upload', authUser, upload.single('profilePicture'), async 
     }
 
     const user = await User.findByIdAndUpdate(
-      req.body.userId,
+      req.userId, // Use req.userId
       { profilePicture: req.file.path },
       { new: true }
     );
@@ -86,7 +86,7 @@ router.put('/profile', authUser, async (req, res) => {
     };
 
     const user = await User.findByIdAndUpdate(
-      req.body.userId, // ✅ Use `req.user.id`
+      req.userId, // Use req.userId
       updatedData,
       { new: true } // ✅ Return updated document
     );
