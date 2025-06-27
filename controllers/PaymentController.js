@@ -23,11 +23,13 @@ const placeOrderGcash = async (req, res) => {
       voucherCode,
       voucherAmount,
       variationAdjustment,
+      shippingFee = 0
     } = req.body;
     console.log("Request Body:", req.body);
     console.log("Voucher Amount:", voucherAmount);
     console.log("Voucher Code:", voucherCode); // Debugging: Log the voucher code
     console.log("variation adjustment:", variationAdjustment); // Debugging: Log the voucher code
+    console.log("Shipping Fee:", shippingFee);
     // Ensure the amount is a number and valid
     if (typeof amount !== "number" || amount <= 0) {
       return res
@@ -66,15 +68,15 @@ const placeOrderGcash = async (req, res) => {
       subtotal += itemPrice * item.quantity;
     }
 
-    // Adjust the amount by subtracting the voucherAmount (if any)
+    // Stripe-style calculation: subtotal + shippingFee - voucherAmount
     const adjustedAmount = Math.max(
-      subtotal - (voucherAmount || 0),
+      subtotal + shippingFee - (voucherAmount || 0),
       0
     ); // Ensure non-negative amount
-    console.log("🎟️ Adjusted Amount after Voucher:", adjustedAmount);
+    console.log("🎟️ Adjusted Amount after Voucher and Shipping:", adjustedAmount);
 
     // Convert the adjusted amount to centavos (multiply by 100)
-    const finalAmount = Math.round(adjustedAmount * 100); // Ensure it's an integer
+    const finalAmount = Math.round(adjustedAmount * 100); // Ensure it's an integer for PayMongo
     console.log("🤑 Final Amount in Centavos:", finalAmount);
 
     // Create Order (Not yet paid)
@@ -89,6 +91,7 @@ const placeOrderGcash = async (req, res) => {
       region,
       voucherCode, // Ensure voucherCode is passed
       voucherAmount: voucherAmount || 0, // Ensure voucherAmount is passed
+      shippingFee,
     });
 
     const newOrder = await orderModel.create({
@@ -102,6 +105,7 @@ const placeOrderGcash = async (req, res) => {
       region,
       voucherCode, // Ensure voucherCode is passed
       voucherAmount: voucherAmount || 0, // Ensure voucherAmount is passed
+      shippingFee,
       orderNumber: generateOrderNumber(), // 🔥 Add this
     });
 
