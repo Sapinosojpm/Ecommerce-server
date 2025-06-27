@@ -40,36 +40,15 @@ const placeOrderGcash = async (req, res) => {
         });
     }
 
-    // Validate stock and prepare updated items, and calculate subtotal with variation adjustments
+    // Use frontend-calculated finalPrice for each item (like Stripe)
     let updatedItems = [];
     let subtotal = 0;
     for (const item of items) {
-      const product = await productModel.findById(item._id);
-      if (!product) {
-        return res
-          .status(404)
-          .json({
-            success: false,
-            message: `Product with ID ${item._id} not found.`,
-          });
-      }
-      // Calculate variation adjustment for this item
-      let variationAdj = 0;
-      if (item.variationDetails && Array.isArray(item.variationDetails)) {
-        variationAdj = item.variationDetails.reduce(
-          (sum, v) => sum + (v.priceAdjustment || 0), 0
-        );
-      }
-      // Match frontend calculation: basePrice + markup + vat + variationAdj
-      let basePrice = item.basePrice !== undefined ? item.basePrice : product.price;
-      let markup = item.markup || 0;
-      let vat = item.vat || 0;
-      let itemPrice = basePrice + markup + vat + variationAdj;
+      let itemPrice = item.finalPrice;
       let itemTotal = itemPrice * item.quantity;
       updatedItems.push({ ...item, price: parseFloat(itemPrice.toFixed(2)) });
       subtotal += itemTotal;
     }
-
     // Stripe-style calculation: subtotal + shippingFee - voucherAmount
     let adjustedAmount = subtotal + shippingFee - (voucherAmount || 0);
     console.log('[GCASH DEBUG] subtotal:', subtotal, 'shippingFee:', shippingFee, 'voucherAmount:', voucherAmount, 'adjustedAmount:', adjustedAmount);
