@@ -8,12 +8,18 @@ import Subscriber from "../models/subscriber.js";
 import path from "path";
 import fs from "fs";
 import { io } from '../server.js'; // adjust path as needed
+import Region from "../models/Region.js";
 
 // Global variables
 const currency = 'PHP';
 const deliveryCharge = 0;
 
-// Gateway initialization
+// Make sure to set STRIPE_SECRET_KEY in your .env file at the project root
+// Example: STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key_here
+if (!process.env.STRIPE_SECRET_KEY) {
+  throw new Error("STRIPE_SECRET_KEY is not set in your environment variables. Please add it to your .env file.");
+}
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const generateOrderNumber = () => {
   return 'ORD-' + Date.now() + '-' + Math.floor(Math.random() * 10000);
@@ -22,35 +28,59 @@ const generateOrderNumber = () => {
 // Placing orders using COD Method
 const updateProductStock = async (items) => {
   try {
+    console.log("[updateProductStock] Called with items:", items);
     const updatePromises = items.map(async (item) => {
-      if (!item.productId) {
-        console.log("Error: Missing productId for item", item);
+      const productId = item.productId || item._id;
+      if (!productId) {
+        console.log("[updateProductStock] Error: Missing productId/_id for item", item);
         throw new Error("Product ID is missing for an item.");
       }
-
-      if (!items || !Array.isArray(items) || items.length === 0) {
-        return res.status(400).json({ success: false, message: "No items to order." });
-      }
-      
-
-      const product = await productModel.findById(item.productId);
+      const product = await productModel.findById(productId);
       if (!product) {
-        console.log(`Error: Product with ID ${item.productId} not found.`);
-        throw new Error(`Product with ID ${item.productId} not found.`);
+        console.log(`[updateProductStock] Error: Product with ID ${productId} not found.`);
+        throw new Error(`Product with ID ${productId} not found.`);
       }
 
-      const updatedQuantity = product.quantity - item.quantity;
-      if (updatedQuantity < 0) {
-        console.log(`Error: Not enough stock for product ID ${item.productId}.`);
-        throw new Error(`Not enough stock for product ID ${item.productId}.`);
+      // If item has variationDetails, deduct from the correct option
+      if (item.variationDetails && item.variationDetails.length > 0) {
+        item.variationDetails.forEach(variationDetail => {
+          const variation = product.variations.find(v => v.name === variationDetail.variationName);
+          if (variation) {
+            const option = variation.options.find(opt => opt.name === variationDetail.optionName);
+            if (option) {
+              if (option.quantity < item.quantity) {
+                console.log(`[updateProductStock] Error: Not enough stock for ${variationDetail.variationName} - ${variationDetail.optionName}`);
+                throw new Error(`Not enough stock for ${variationDetail.variationName} - ${variationDetail.optionName}`);
+              }
+              option.quantity -= item.quantity;
+              console.log(`[updateProductStock] Deducted ${item.quantity} from ${variationDetail.variationName} - ${variationDetail.optionName}. New quantity: ${option.quantity}`);
+            } else {
+              console.log(`[updateProductStock] Option not found: ${variationDetail.optionName} in variation ${variationDetail.variationName}`);
+            }
+          } else {
+            console.log(`[updateProductStock] Variation not found: ${variationDetail.variationName}`);
+          }
+        });
+        await product.save();
+      } else {
+        if (typeof product.quantity === 'number') {
+          const updatedQuantity = product.quantity - item.quantity;
+          console.log(`[updateProductStock] Product: ${product.name} (${productId}), Current: ${product.quantity}, Deduct: ${item.quantity}, New: ${updatedQuantity}`);
+          if (updatedQuantity < 0) {
+            console.log(`[updateProductStock] Error: Not enough stock for product ID ${productId}.`);
+            throw new Error(`Not enough stock for product ID ${productId}.`);
+          }
+          await productModel.findByIdAndUpdate(productId, { quantity: updatedQuantity });
+          console.log(`[updateProductStock] Stock updated for product ID ${productId}.`);
+        } else {
+          console.log(`[updateProductStock] Warning: No base quantity field for product ${product.name} (${productId}), skipping base stock deduction.`);
+        }
       }
-
-      await productModel.findByIdAndUpdate(item.productId, { quantity: updatedQuantity });
     });
-
     await Promise.all(updatePromises);
+    console.log("[updateProductStock] All stocks updated successfully.");
   } catch (error) {
-    console.log("Error in updating product stock:", error);
+    console.log("[updateProductStock] Error in updating product stock:", error);
     throw new Error(error.message);
   }
 };
@@ -59,6 +89,10 @@ const placeOrder = async (req, res) => {
   session.startTransaction();
 
   try {
+    console.log('==== BACKEND ORDER PAYLOAD ====');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    console.log('==============================');
+
     const {
       userId,
       items,
@@ -70,41 +104,122 @@ const placeOrder = async (req, res) => {
       variationAdjustment,
       variationDetails,
       variations,
-      shippingFee
+      shippingFee,
+      fromCart
     } = req.body;
 
+    // Validate amount is positive
     if (amount <= 0) {
-      return res.status(400).json({ success: false, message: "Invalid total amount." });
+      return res.status(400).json({ 
+        success: false, 
+        message: "Order total must be greater than zero." 
+      });
     }
 
+    // Fetch region fee
+    let regionFee = 0;
+    if (address && address.region) {
+      const regionDoc = await Region.findOne({ name: new RegExp(`^${address.region}$`, 'i') });
+      regionFee = regionDoc ? regionDoc.fee : 0;
+    }
+
+    // Calculate subtotal from items
+    let subtotal = 0;
+    const processedItems = Array.isArray(items) ? items.map((item) => {
+      let variationAdjustment = 0;
+      let variationDetails = [];
+      if (item.variationDetails && Array.isArray(item.variationDetails) && item.variationDetails.length > 0) {
+        variationAdjustment = item.variationDetails.reduce(
+          (sum, v) => sum + (v.priceAdjustment || 0),
+          0
+        );
+        variationDetails = item.variationDetails;
+      } else if (item.variations && typeof item.variations === 'object') {
+        variationDetails = Object.entries(item.variations).map(([variationName, v]) => ({
+          variationName,
+          optionName: v.name,
+          priceAdjustment: v.priceAdjustment || 0,
+        }));
+        variationAdjustment = variationDetails.reduce(
+          (sum, v) => sum + (v.priceAdjustment || 0),
+          0
+        );
+      }
+      return {
+        ...item,
+        variationAdjustment,
+        variationDetails,
+      };
+    }) : [];
+
+    // Calculate subtotal
+    processedItems.forEach((item) => {
+      let basePrice = (item.price || 0) + (item.variationAdjustment || 0);
+      const discount = item.discount ? (basePrice * (item.discount / 100)) : 0;
+      const finalPrice = Math.round((basePrice - discount) * 100) / 100;
+      const itemTotal = Math.round((finalPrice * (item.quantity || 1)) * 100) / 100;
+      subtotal = Math.round((subtotal + itemTotal) * 100) / 100;
+    });
+
+    const discount = req.body.discountAmount || 0;
+    const voucher = voucherAmount || 0;
+    const shipping = shippingFee || 0;
+    
+    // Final validation of calculated total
+    const calculatedTotal = Math.round((subtotal - discount - voucher + shipping + regionFee) * 100) / 100;
+    if (calculatedTotal <= 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Order total must be greater than zero after applying all discounts and vouchers." 
+      });
+    }
     // Debug logs for backend order calculation
-    console.log('==== BACKEND ORDER DEBUG ====');
-    console.log('Amount received from frontend (should be item total after discount):', amount);
-    console.log('ShippingFee received from frontend:', shippingFee);
-    console.log('Final order total (amount + shippingFee):', amount + (shippingFee || 0));
-    console.log('============================');
+    console.log('==== BACKEND ORDER DEBUG (STANDARDIZED) ====');
+    console.log('Subtotal:', subtotal);
+    console.log('Discount:', discount);
+    console.log('Voucher:', voucher);
+    console.log('Shipping Fee:', shipping);
+    console.log('Region Fee:', regionFee);
+    console.log('Final Calculated Total:', calculatedTotal);
+    console.log('============================================');
 
     const orderData = {
       userId,
-      items,
+      items: processedItems,
       address,
-      amount: amount + (shippingFee || 0),
+      amount: calculatedTotal,
       paymentMethod: "COD",
       payment: false,
       date: Date.now(),
       discountCode: discountCode || null,
-      voucherAmount: voucherAmount || 0,
+      discountAmount: discount || 0,
+      voucherAmount: voucher || 0,
       voucherCode: voucherCode || null,
       orderNumber: generateOrderNumber(),
       variationDetails: variationDetails || null,
       variations: variations || null,
-      shippingFee: shippingFee || 0,
+      shippingFee: shipping || 0,
+      regionFee: regionFee,
+      statusHistory: [{ status: "Order Placed", changedAt: new Date(), notes: "Order created" }],
     };
 
     const newOrder = new orderModel(orderData);
     await newOrder.save({ session });
+    console.log('[placeOrder] Order saved, attempting to update product stock...');
+    try {
+      await updateProductStock(processedItems);
+      console.log('[placeOrder] Product stock updated successfully.');
+    } catch (stockError) {
+      console.error('[placeOrder] Stock deduction failed:', stockError);
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ success: false, message: `Stock deduction failed: ${stockError.message}` });
+    }
 
-    await userModel.findByIdAndUpdate(userId, { cartData: {} }, { session });
+    // Only clear the cart if fromCart is true
+    if (fromCart) {
+      await userModel.findByIdAndUpdate(userId, { cartData: {} }, { session });
+    }
 
     if (voucherCode) {
       const userVoucherUpdated = await userModel.updateOne(
@@ -180,17 +295,33 @@ const placeOrderStripe = async (req, res) => {
     const newOrder = new orderModel(orderData);
     await newOrder.save();
 
+    // Build Stripe line_items with variation adjustment
     const line_items = items.map((item) => {
-      const itemPrice = Math.round((amount / items.length) * 100);
+      // Use the actual price (should be per unit, in cents)
+      const unitPrice = Math.round((item.price || 0) * 100);
       return {
         price_data: {
           currency: "PHP",
           product_data: { name: item.name },
-          unit_amount: itemPrice,
+          unit_amount: unitPrice,
         },
         quantity: item.quantity,
       };
     });
+    // Add shipping fee as a separate line item if present
+    if (shippingFee && shippingFee > 0) {
+      line_items.push({
+        price_data: {
+          currency: "PHP",
+          product_data: { name: "Shipping Fee" },
+          unit_amount: Math.round(shippingFee * 100),
+        },
+        quantity: 1,
+      });
+    }
+
+    console.log('Order:', newOrder);
+    console.log('Line items:', line_items);
 
     const session = await stripe.checkout.sessions.create({
       success_url: `${origin}/verify?success=true&orderId=${newOrder._id}`,
@@ -409,17 +540,21 @@ const userOrders = async (req, res) => {
 const updateStatus = async (req, res) => {
   try {
     const { orderId, status } = req.body;
-    const order = await orderModel.findByIdAndUpdate(orderId, { status }, { new: true });
-    
-    if (order) {
+    const order = await orderModel.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+    // Push new status to statusHistory
+    order.status = status;
+    order.statusHistory = order.statusHistory || [];
+    order.statusHistory.push({ status, changedAt: new Date(), notes: "Status updated" });
+    await order.save();
       const io = req.app.get('io'); // Get the io instance from app
       if (io) {
         io.to(order.userId.toString()).emit('orderUpdated', order);
         io.to('admin_room').emit('orderUpdatedAdmin', order);
         io.to(`order_${order._id.toString()}`).emit('orderStatusUpdate', order);
       }
-    }
-    
     res.json({ success: true, message: "Status Updated" });
   } catch (error) {
     console.log(error);
@@ -960,6 +1095,57 @@ export const scanQrAndUpdateStatus = async (req, res) => {
   }
 };
 
+export const createStripeCheckoutSession = async (req, res) => {
+  console.log('createStripeCheckoutSession called', req.params, req.userId);
+  try {
+    const { orderId } = req.params;
+    const userId = req.userId;
+
+    const order = await orderModel.findOne({ _id: orderId, userId, payment: false });
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found or already paid" });
+    }
+
+    // Build line items (include variationAdjustment and shipping fee)
+    const line_items = order.items.map((item) => ({
+      price_data: {
+        currency: "PHP",
+        product_data: { name: item.name },
+        unit_amount: Math.round(((item.price || 0) + (item.variationAdjustment || 0)) * 100),
+      },
+      quantity: item.quantity,
+    }));
+    if (order.shippingFee && order.shippingFee > 0) {
+      line_items.push({
+        price_data: {
+          currency: "PHP",
+          product_data: { name: "Shipping Fee" },
+          unit_amount: Math.round(order.shippingFee * 100),
+        },
+        quantity: 1,
+      });
+    }
+
+    console.log('Order:', order);
+    console.log('Line items:', line_items);
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items,
+      mode: "payment",
+      success_url: `${process.env.FRONTEND_URL}/orders?paymentSuccess=true&orderId=${order._id}`,
+      cancel_url: `${process.env.FRONTEND_URL}/orders?paymentFailed=true&orderId=${order._id}`,
+      customer_email: order.address?.email,
+      metadata: { orderId: order._id.toString() },
+    });
+
+    res.json({ success: true, session_url: session.url });
+  } catch (error) {
+    console.error("Stripe Checkout error:", error);
+    res.status(500).json({ success: false, message: "Failed to create Stripe Checkout session" });
+  }
+};
+
 export {
   uploadReceipt,
   verifyStripe,
@@ -969,5 +1155,5 @@ export {
   allOrders,
   userOrders,
   updateStatus,
-  updateProductStock
+  updateProductStock,
 };

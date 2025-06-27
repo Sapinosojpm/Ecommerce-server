@@ -263,9 +263,10 @@ const verifyGCashPayment = async (req, res) => {
       for (const item of order.items) {
         console.log("📦 Processing order item:", item);
 
-        const product = await productModel.findById(item.productId);
+        // Use item.productId or fallback to item._id for product lookup
+        const product = await productModel.findById(item.productId || item._id);
         if (!product) {
-          console.warn(`⚠️ Product not found: ${item.productId}`);
+          console.warn(`⚠️ Product not found: ${item.productId || item._id}`);
           continue;
         }
 
@@ -355,13 +356,16 @@ const verifyGCashPayment = async (req, res) => {
       console.log(`✅ Order ${order._id} marked as Paid.`);
 
       // ✅ Clear Cart
-      const user = await userModel.findById(order.userId);
-      if (user) {
-        console.log(`🛒 Clearing cart for user: ${order.userId}`);
-        user.cartData = [];
-        await user.save();
-      } else {
-        console.warn(`⚠️ User not found: ${order.userId}`);
+      // Only clear cart if order.fromCart is true
+      if (order.fromCart) {
+        const user = await userModel.findById(order.userId);
+        if (user) {
+          console.log(`🛒 Clearing cart for user: ${order.userId}`);
+          user.cartData = [];
+          await user.save();
+        } else {
+          console.warn(`⚠️ User not found: ${order.userId}`);
+        }
       }
 
       // ✅ Voucher Handling

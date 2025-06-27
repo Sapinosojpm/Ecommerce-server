@@ -106,6 +106,7 @@ const orderSchema = new mongoose.Schema(
     },
 
     shippingFee: { type: Number, default: 0 },
+    regionFee: { type: Number, default: 0 },
   },
   {
     timestamps: true,

@@ -14,7 +14,7 @@ import {
   processPayment,
   verifyPayment,
   scanQrAndUpdateStatus,
- 
+  createStripeCheckoutSession,
 } from '../controllers/orderController.js';
 import adminAuth from '../middleware/adminAuth.js';
 import authUser from '../middleware/auth.js';
@@ -47,4 +47,8 @@ orderRouter.post('/:id/pay', authUser, processPayment);
 orderRouter.post('/:id/verify-payment', authUser, verifyPayment);
 // Add to orderRoute.js
 orderRouter.post('/scan-qr', adminAuth, scanQrAndUpdateStatus);
+orderRouter.post('/:orderId/stripe-checkout', authUser, (req, res, next) => {
+  console.log('Stripe checkout route called', req.params.orderId, req.userId);
+  next();
+}, createStripeCheckoutSession);
 export default orderRouter;
