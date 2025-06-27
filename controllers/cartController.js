@@ -3,6 +3,7 @@ import userModel from "../models/userModel.js";
 // add products to user cart
 const addToCart = async (req, res) => {
   try {
+    console.log("addToCart called with body:", req.body);
     const {
       userId,
       itemId,
@@ -13,6 +14,7 @@ const addToCart = async (req, res) => {
     } = req.body;
 
     const userData = await userModel.findById(userId);
+    console.log("Fetched user:", userData);
     if (!userData) {
       return res
         .status(404)
@@ -20,6 +22,9 @@ const addToCart = async (req, res) => {
     }
 
     let cartData = userData.cartData || {};
+    if (Array.isArray(cartData)) {
+      cartData = {};
+    }
 
     // Filter only selected variations (if any)
     const selectedVariations = {};
@@ -50,25 +55,16 @@ const addToCart = async (req, res) => {
       };
     }
 
-    console.log("🟢 Updated cartData:");
-    Object.entries(cartData).forEach(([id, item]) => {
-      console.log(`🛒 Item ID: ${id}`);
-      console.log(`Quantity: ${item.quantity}`);
-      console.log(`Final Price: ₱${item.finalPrice}`);
-      if (item.variations) {
-        console.log(`   Variations:`);
-        Object.entries(item.variations).forEach(([variationKey, variationValue]) => {
-          console.log(`     • ${variationKey}: ${variationValue.name} (+₱${variationValue.priceAdjustment})`);
-        });
-      }
-    });
+    console.log("🟢 Updated cartData before save:", cartData);
 
     // Update cart in database
-    await userModel.findByIdAndUpdate(
+    const updatedUser = await userModel.findByIdAndUpdate(
       userId,
       { $set: { cartData } },
       { new: true }
     );
+
+    console.log("Updated user cartData after save:", updatedUser.cartData);
 
     res.json({ success: true, message: "Item added to cart", cartData });
   } catch (error) {

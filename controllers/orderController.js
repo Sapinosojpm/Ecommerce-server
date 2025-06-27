@@ -1135,7 +1135,7 @@ export const createStripeCheckoutSession = async (req, res) => {
       price_data: {
         currency: "PHP",
         product_data: { name: item.name },
-        unit_amount: Math.round(((item.price || 0) + (item.variationAdjustment || 0)) * 100),
+        unit_amount: Math.round((item.price || 0) * 100),
       },
       quantity: item.quantity,
     }));
@@ -1152,13 +1152,19 @@ export const createStripeCheckoutSession = async (req, res) => {
 
     console.log('Order:', order);
     console.log('Line items:', line_items);
+    // Debug: Print FRONTEND_URL and URLs being sent to Stripe
+    console.log('FRONTEND_URL:', process.env.FRONTEND_URL);
+    const successUrl = `${process.env.FRONTEND_URL}/orders?paymentSuccess=true&orderId=${order._id}`;
+    const cancelUrl = `${process.env.FRONTEND_URL}/orders?paymentFailed=true&orderId=${order._id}`;
+    console.log('Success URL:', successUrl);
+    console.log('Cancel URL:', cancelUrl);
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       line_items,
       mode: "payment",
-      success_url: `${process.env.FRONTEND_URL}/orders?paymentSuccess=true&orderId=${order._id}`,
-      cancel_url: `${process.env.FRONTEND_URL}/orders?paymentFailed=true&orderId=${order._id}`,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
       customer_email: order.address?.email,
       metadata: { orderId: order._id.toString() },
     });
@@ -1167,6 +1173,29 @@ export const createStripeCheckoutSession = async (req, res) => {
   } catch (error) {
     console.error("Stripe Checkout error:", error);
     res.status(500).json({ success: false, message: "Failed to create Stripe Checkout session" });
+  }
+};
+
+export const verifyStripePayment = async (req, res) => {
+  try {
+    const { orderId } = req.body;
+    if (!orderId) {
+      return res.status(400).json({ success: false, message: "Order ID is required." });
+    }
+    const order = await orderModel.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found." });
+    }
+    if (order.payment) {
+      return res.json({ success: true, message: "Order already marked as paid." });
+    }
+    order.payment = true;
+    order.status = "Order Placed";
+    await order.save();
+    return res.json({ success: true, message: "Order marked as paid." });
+  } catch (error) {
+    console.error("Error verifying Stripe payment:", error);
+    return res.status(500).json({ success: false, message: "Failed to verify payment." });
   }
 };
 
