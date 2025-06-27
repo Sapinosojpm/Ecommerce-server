@@ -286,6 +286,7 @@ const placeOrderStripe = async (req, res) => {
 
     // Stripe-style calculation: subtotal + shippingFee - voucherAmount
     let adjustedAmount = subtotal + shippingFee - (voucherAmount || 0);
+    console.log('[STRIPE DEBUG] subtotal:', subtotal, 'shippingFee:', shippingFee, 'voucherAmount:', voucherAmount, 'adjustedAmount:', adjustedAmount);
     let displayAmount = parseFloat(adjustedAmount.toFixed(2));
     const finalAmount = Math.round(adjustedAmount * 100); // in cents
 
@@ -328,6 +329,19 @@ const placeOrderStripe = async (req, res) => {
         quantity: 1,
       });
     }
+    // Remove negative line item logic for voucher/discount
+    // Instead, use Stripe coupons for discounts
+    let couponId = null;
+    if (voucherAmount && voucherAmount > 0) {
+      // Create a Stripe coupon for the voucher amount
+      const coupon = await stripe.coupons.create({
+        amount_off: Math.round(voucherAmount * 100),
+        currency: 'PHP',
+        name: voucherCode || 'Voucher Discount',
+        duration: 'once',
+      });
+      couponId = coupon.id;
+    }
 
     console.log('Order:', newOrder);
     console.log('Line items:', line_items);
@@ -337,6 +351,7 @@ const placeOrderStripe = async (req, res) => {
       cancel_url: `${origin}/verify?success=false&orderId=${newOrder._id}`,
       line_items,
       mode: "payment",
+      discounts: couponId ? [{ coupon: couponId }] : [],
     });
 
     res.json({ success: true, session_url: session.url });

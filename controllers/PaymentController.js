@@ -72,10 +72,9 @@ const placeOrderGcash = async (req, res) => {
 
     // Stripe-style calculation: subtotal + shippingFee - voucherAmount
     let adjustedAmount = subtotal + shippingFee - (voucherAmount || 0);
-    // Only round here for display
+    console.log('[GCASH DEBUG] subtotal:', subtotal, 'shippingFee:', shippingFee, 'voucherAmount:', voucherAmount, 'adjustedAmount:', adjustedAmount);
     let displayAmount = parseFloat(adjustedAmount.toFixed(2));
-    // Only round here for payment API
-    const finalAmount = Math.round(adjustedAmount * 100); // Ensure it's an integer for PayMongo
+    const finalAmount = Math.round(adjustedAmount * 100); // for payment API
     console.log("🎟️ Adjusted Amount after Voucher and Shipping:", displayAmount);
     console.log("🤑 Final Amount in Centavos:", finalAmount);
 
