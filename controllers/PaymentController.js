@@ -38,23 +38,9 @@ const placeOrderGcash = async (req, res) => {
         });
     }
 
-    // Safely handle undefined/null variationAdjustment
-    const safeVariation =
-      typeof variationAdjustment === "number" ? variationAdjustment : 0;
-
-    // Adjust the amount by subtracting the voucherAmount (if any)
-    const adjustedAmount = Math.max(
-      amount + safeVariation - (voucherAmount || 0),
-      0
-    ); // Ensure non-negative amount
-    console.log("🎟️ Adjusted Amount after Voucher:", adjustedAmount);
-
-    // Convert the adjusted amount to centavos (multiply by 100)
-    const finalAmount = Math.round(adjustedAmount * 100); // Ensure it's an integer
-    console.log("🤑 Final Amount in Centavos:", finalAmount);
-
-    // Validate stock and prepare updated items
+    // Validate stock and prepare updated items, and calculate subtotal with variation adjustments
     let updatedItems = [];
+    let subtotal = 0;
     for (const item of items) {
       const product = await productModel.findById(item._id);
       if (!product) {
@@ -65,22 +51,31 @@ const placeOrderGcash = async (req, res) => {
             message: `Product with ID ${item._id} not found.`,
           });
       }
-      if (product.quantity < item.quantity) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: `Not enough stock for ${product.name}.`,
-          });
+      // Calculate variation adjustment for this item
+      let variationAdj = 0;
+      if (item.variationDetails && Array.isArray(item.variationDetails)) {
+        variationAdj = item.variationDetails.reduce(
+          (sum, v) => sum + (v.priceAdjustment || 0), 0
+        );
       }
-
       // Calculate the discounted price for the item (if applicable)
       let itemPrice = product.discount
-        ? parseFloat((product.price * (1 - product.discount / 100)).toFixed(2))
-        : product.price;
-
+        ? parseFloat(((product.price + variationAdj) * (1 - product.discount / 100)).toFixed(2))
+        : product.price + variationAdj;
       updatedItems.push({ ...item, price: itemPrice });
+      subtotal += itemPrice * item.quantity;
     }
+
+    // Adjust the amount by subtracting the voucherAmount (if any)
+    const adjustedAmount = Math.max(
+      subtotal - (voucherAmount || 0),
+      0
+    ); // Ensure non-negative amount
+    console.log("🎟️ Adjusted Amount after Voucher:", adjustedAmount);
+
+    // Convert the adjusted amount to centavos (multiply by 100)
+    const finalAmount = Math.round(adjustedAmount * 100); // Ensure it's an integer
+    console.log("🤑 Final Amount in Centavos:", finalAmount);
 
     // Create Order (Not yet paid)
     console.log("Order Data before creation:", {
