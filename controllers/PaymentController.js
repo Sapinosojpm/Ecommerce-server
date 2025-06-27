@@ -65,8 +65,7 @@ const placeOrderGcash = async (req, res) => {
       let markup = item.markup || 0;
       let vat = item.vat || 0;
       let itemPrice = basePrice + markup + vat + variationAdj;
-      let itemTotal = itemPrice * item.quantity; // DO NOT ROUND
-      // Always use the calculated price for payment, not the frontend value
+      let itemTotal = itemPrice * item.quantity;
       updatedItems.push({ ...item, price: parseFloat(itemPrice.toFixed(2)) });
       subtotal += itemTotal;
     }
