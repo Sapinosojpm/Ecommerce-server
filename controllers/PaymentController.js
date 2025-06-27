@@ -60,23 +60,24 @@ const placeOrderGcash = async (req, res) => {
           (sum, v) => sum + (v.priceAdjustment || 0), 0
         );
       }
-      // Calculate the discounted price for the item (if applicable)
-      let itemPrice = product.discount
-        ? parseFloat(((product.price + variationAdj) * (1 - product.discount / 100)).toFixed(2))
-        : product.price + variationAdj;
-      updatedItems.push({ ...item, price: itemPrice });
-      subtotal += itemPrice * item.quantity;
+      // Match frontend calculation: basePrice + markup + vat + variationAdj
+      let basePrice = item.basePrice !== undefined ? item.basePrice : product.price;
+      let markup = item.markup || 0;
+      let vat = item.vat || 0;
+      let itemPrice = basePrice + markup + vat + variationAdj;
+      let itemTotal = itemPrice * item.quantity; // DO NOT ROUND
+      // Always use the calculated price for payment, not the frontend value
+      updatedItems.push({ ...item, price: parseFloat(itemPrice.toFixed(2)) });
+      subtotal += itemTotal;
     }
 
     // Stripe-style calculation: subtotal + shippingFee - voucherAmount
-    const adjustedAmount = Math.max(
-      subtotal + shippingFee - (voucherAmount || 0),
-      0
-    ); // Ensure non-negative amount
-    console.log("🎟️ Adjusted Amount after Voucher and Shipping:", adjustedAmount);
-
-    // Convert the adjusted amount to centavos (multiply by 100)
+    let adjustedAmount = subtotal + shippingFee - (voucherAmount || 0);
+    // Only round here for display
+    let displayAmount = parseFloat(adjustedAmount.toFixed(2));
+    // Only round here for payment API
     const finalAmount = Math.round(adjustedAmount * 100); // Ensure it's an integer for PayMongo
+    console.log("🎟️ Adjusted Amount after Voucher and Shipping:", displayAmount);
     console.log("🤑 Final Amount in Centavos:", finalAmount);
 
     // Create Order (Not yet paid)
@@ -84,7 +85,7 @@ const placeOrderGcash = async (req, res) => {
       userId,
       items: updatedItems,
       address,
-      amount: adjustedAmount, // Use the adjusted amount
+      amount: displayAmount, // Use the rounded display amount
       paymentMethod: "GCash",
       payment: false,
       date: Date.now(),
@@ -98,7 +99,7 @@ const placeOrderGcash = async (req, res) => {
       userId,
       items: updatedItems,
       address,
-      amount: adjustedAmount, // Use the adjusted amount
+      amount: displayAmount, // Use the rounded display amount
       paymentMethod: "GCash",
       payment: false,
       date: Date.now(),

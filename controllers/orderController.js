@@ -271,18 +271,45 @@ const placeOrder = async (req, res) => {
 
 const placeOrderStripe = async (req, res) => {
   try {
-    const { userId, items, amount, address, voucherAmount, voucherCode, variationAdjustment, shippingFee } = req.body;
+    const { userId, items, amount, address, voucherAmount, voucherCode, variationAdjustment, shippingFee = 0 } = req.body;
     const { origin } = req.headers;
 
-    if (amount <= 0) {
-      return res.status(400).json({ success: false, message: "Invalid total amount." });
+    // Calculate subtotal with frontend-matching logic
+    let updatedItems = [];
+    let subtotal = 0;
+    for (const item of items) {
+      const product = await productModel.findById(item._id);
+      if (!product) {
+        return res.status(404).json({ success: false, message: `Product with ID ${item._id} not found.` });
+      }
+      // Calculate variation adjustment for this item
+      let variationAdj = 0;
+      if (item.variationDetails && Array.isArray(item.variationDetails)) {
+        variationAdj = item.variationDetails.reduce((sum, v) => sum + (v.priceAdjustment || 0), 0);
+      }
+      // Match frontend calculation: basePrice + markup + vat + variationAdj
+      let basePrice = item.basePrice !== undefined ? item.basePrice : product.price;
+      let markup = item.markup || 0;
+      let vat = item.vat || 0;
+      let itemPrice = basePrice + markup + vat + variationAdj;
+      let itemTotal = itemPrice * item.quantity; // DO NOT ROUND
+      // Always use the calculated price for payment, not the frontend value
+      updatedItems.push({ ...item, price: parseFloat(itemPrice.toFixed(2)) });
+      subtotal += itemTotal;
     }
+
+    // Stripe-style calculation: subtotal + shippingFee - voucherAmount
+    let adjustedAmount = subtotal + shippingFee - (voucherAmount || 0);
+    // Only round here for display
+    let displayAmount = parseFloat(adjustedAmount.toFixed(2));
+    // Only round here for payment API
+    const finalAmount = Math.round(adjustedAmount * 100); // in cents
 
     const orderData = {
       userId,
-      items,
+      items: updatedItems,
       address,
-      amount: amount + (shippingFee || 0),
+      amount: displayAmount,
       paymentMethod: "Stripe",
       payment: false,
       date: Date.now(),
@@ -295,10 +322,9 @@ const placeOrderStripe = async (req, res) => {
     const newOrder = new orderModel(orderData);
     await newOrder.save();
 
-    // Build Stripe line_items with variation adjustment
-    const line_items = items.map((item) => {
-      // Use the actual price (should be per unit, in cents)
-      const unitPrice = Math.round((item.price || 0) * 100);
+    // Build Stripe line_items with correct price (use calculated price, not frontend value)
+    const line_items = updatedItems.map((item) => {
+      const unitPrice = Math.round((item.price) * 100); // item.price is always float with decimals
       return {
         price_data: {
           currency: "PHP",
