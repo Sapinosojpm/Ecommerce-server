@@ -9,6 +9,5 @@ router.post('/api/payment/gcash', authUser, placeOrderGcash);
 router.post('/api/payment/gcash/verify', authUser, verifyGCashPayment);
 router.get('/api/payment/gcash/verify', verifyGCashPayment); // ✅ Add this route
 router.post('/gcash/pay/:orderId', payExistingOrderGcash);
-router.get('/gcash/verify', verifyGCashPayment);
 
 export default router;

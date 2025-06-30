@@ -275,7 +275,6 @@ const placeOrderGcash = async (req, res) => {
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 const verifyGCashPayment = async (req, res) => {
-  console.log('🔔 verifyGCashPayment endpoint called', req.query);
   try {
     const { orderId, payment_intent_id } = req.query;
 
@@ -440,7 +439,7 @@ const verifyGCashPayment = async (req, res) => {
       order.payment = true;
       order.status = "Order Placed"; // Update status to "ordered"
       await order.save();
-      console.log(`✅ Order ${order._id} marked as Paid (payment: ${order.payment})`);
+      console.log(`✅ Order ${order._id} marked as Paid.`);
 
       // ✅ Clear Cart
       // Only clear cart if order.fromCart is true
