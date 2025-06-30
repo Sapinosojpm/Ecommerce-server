@@ -57,6 +57,94 @@ const placeOrderGcash = async (req, res) => {
     console.log("🎟️ Adjusted Amount after Voucher and Shipping:", displayAmount);
     console.log("🤑 Final Amount in Centavos:", finalAmount);
 
+    // Prevent duplicate unpaid orders for the same user and items
+    const existingOrder = await orderModel.findOne({
+      userId,
+      payment: false,
+      address,
+      amount,
+      voucherCode: voucherCode || null,
+      voucherAmount: voucherAmount || 0,
+      shippingFee: shippingFee || 0,
+      // Optionally, you can add more checks for items equality if needed
+    });
+    if (existingOrder) {
+      console.log("Found existing unpaid order:", existingOrder._id);
+      // Proceed to create payment intent for this order instead of creating a new one
+      // Step 1: Create Payment Intent
+      const finalAmount = Math.round(existingOrder.amount * 100);
+      const paymentIntentResponse = await axios.post(
+        "https://api.paymongo.com/v1/payment_intents",
+        {
+          data: {
+            attributes: {
+              amount: finalAmount,
+              payment_method_allowed: ["gcash"],
+              currency: "PHP",
+              capture_type: "automatic",
+              description: `Payment for Order ID: ${existingOrder._id}`,
+            },
+          },
+        },
+        {
+          headers: {
+            Authorization: `Basic ${Buffer.from(
+              process.env.PAYMONGO_SECRET_KEY
+            ).toString("base64")}`,
+          },
+        }
+      );
+      const paymentIntentId = paymentIntentResponse.data.data.id;
+      // Step 2: Create Payment Method
+      const paymentMethodResponse = await axios.post(
+        "https://api.paymongo.com/v1/payment_methods",
+        {
+          data: {
+            attributes: {
+              type: "gcash",
+              billing: {
+                name: "Customer",
+                email: "customer@example.com",
+                phone: "09123456789",
+              },
+            },
+          },
+        },
+        {
+          headers: {
+            Authorization: `Basic ${Buffer.from(
+              process.env.PAYMONGO_SECRET_KEY
+            ).toString("base64")}`,
+          },
+        }
+      );
+      const paymentMethodId = paymentMethodResponse.data.data.id;
+      // Step 3: Attach Payment Method to Payment Intent
+      const attachResponse = await axios.post(
+        `https://api.paymongo.com/v1/payment_intents/${paymentIntentId}/attach`,
+        {
+          data: {
+            attributes: {
+              payment_method: paymentMethodId,
+              return_url: `${process.env.FRONTEND_URL}/verify-payment?orderId=${existingOrder._id}&payment_intent_id=${paymentIntentId}`,
+            },
+          },
+        },
+        {
+          headers: {
+            Authorization: `Basic ${Buffer.from(
+              process.env.PAYMONGO_SECRET_KEY
+            ).toString("base64")}`,
+          },
+        }
+      );
+      const paymentUrl = attachResponse.data.data.attributes.next_action?.redirect.url;
+      if (!paymentUrl) {
+        return res.status(500).json({ success: false, message: "Failed to generate payment URL." });
+      }
+      return res.json({ success: true, paymentUrl });
+    }
+
     // Create Order (Not yet paid)
     console.log("Order Data before creation:", {
       userId,
@@ -184,8 +272,10 @@ const placeOrderGcash = async (req, res) => {
   }
 };
 
-// Verify GCash Payment
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 const verifyGCashPayment = async (req, res) => {
+  console.log('🔔 verifyGCashPayment endpoint called', req.query);
   try {
     const { orderId, payment_intent_id } = req.query;
 
@@ -225,13 +315,33 @@ const verifyGCashPayment = async (req, res) => {
       ).toString("base64")}`,
     };
 
-    const paymentIntentResponse = await axios.get(
-      `https://api.paymongo.com/v1/payment_intents/${payment_intent_id}`,
-      { headers: authHeader }
-    );
-
-    const paymentStatus = paymentIntentResponse.data.data.attributes.status;
-    console.log(`📢 Payment Status: ${paymentStatus}`);
+    let paymentIntentResponse;
+    let paymentStatus;
+    let attempts = 0;
+    const maxAttempts = 5;
+    do {
+      try {
+        paymentIntentResponse = await axios.get(
+          `https://api.paymongo.com/v1/payment_intents/${payment_intent_id}`,
+          { headers: authHeader }
+        );
+      } catch (err) {
+        console.error("❌ Error fetching payment intent from PayMongo:", err.response?.data || err.message);
+        return res.status(500).json({
+          success: false,
+          message: "Failed to fetch payment intent from PayMongo.",
+          error: err.response?.data || err.message,
+        });
+      }
+      paymentStatus = paymentIntentResponse.data.data.attributes.status;
+      console.log(`📢 Payment Status (attempt ${attempts + 1}): ${paymentStatus}`);
+      if (paymentStatus === "succeeded" || paymentStatus !== "processing") {
+        break;
+      }
+      attempts++;
+      await delay(1500); // wait 1.5 seconds before next poll
+    } while (attempts < maxAttempts);
+    console.log('Full PayMongo PaymentIntent Response:', JSON.stringify(paymentIntentResponse.data, null, 2));
 
     if (paymentStatus === "succeeded") {
       console.log("💰 Payment successful! Processing order...");
@@ -330,7 +440,7 @@ const verifyGCashPayment = async (req, res) => {
       order.payment = true;
       order.status = "Order Placed"; // Update status to "ordered"
       await order.save();
-      console.log(`✅ Order ${order._id} marked as Paid.`);
+      console.log(`✅ Order ${order._id} marked as Paid (payment: ${order.payment})`);
 
       // ✅ Clear Cart
       // Only clear cart if order.fromCart is true
@@ -404,12 +514,15 @@ const verifyGCashPayment = async (req, res) => {
         success: true,
         message: "Payment successful.",
         redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentSuccess=true&orderId=${order._id}`,
+        paymentStatus,
       });
     } else {
       return res.status(200).json({
         success: false,
-        message: "Payment failed.",
+        message: `Payment not successful. Status: ${paymentStatus}`,
         redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentFailed=true&orderId=${order._id}`,
+        paymentStatus,
+        paymongoResponse: paymentIntentResponse.data,
       });
     }
   } catch (error) {
@@ -420,4 +533,85 @@ const verifyGCashPayment = async (req, res) => {
   }
 };
 
-export { placeOrderGcash, verifyGCashPayment };
+// POST /api/payment/gcash/pay/:orderId
+const payExistingOrderGcash = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await orderModel.findById(orderId);
+    if (!order || order.payment) {
+      return res.status(400).json({ success: false, message: "Order not found or already paid." });
+    }
+    // Use order.amount, order.items, etc. to create payment intent
+    const finalAmount = Math.round(order.amount * 100); // in centavos
+    // Step 1: Create Payment Intent
+    const paymentIntentResponse = await axios.post(
+      "https://api.paymongo.com/v1/payment_intents",
+      {
+        data: {
+          attributes: {
+            amount: finalAmount,
+            payment_method_allowed: ["gcash"],
+            currency: "PHP",
+            capture_type: "automatic",
+            description: `Payment for Order ID: ${order._id}`,
+          },
+        },
+      },
+      {
+        headers: {
+          Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
+        },
+      }
+    );
+    const paymentIntentId = paymentIntentResponse.data.data.id;
+    // Step 2: Create Payment Method
+    const paymentMethodResponse = await axios.post(
+      "https://api.paymongo.com/v1/payment_methods",
+      {
+        data: {
+          attributes: {
+            type: "gcash",
+            billing: {
+              name: order.address?.name || "Customer",
+              email: order.address?.email || "customer@example.com",
+              phone: order.address?.phone || "09123456789",
+            },
+          },
+        },
+      },
+      {
+        headers: {
+          Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
+        },
+      }
+    );
+    const paymentMethodId = paymentMethodResponse.data.data.id;
+    // Step 3: Attach Payment Method to Payment Intent
+    const attachResponse = await axios.post(
+      `https://api.paymongo.com/v1/payment_intents/${paymentIntentId}/attach`,
+      {
+        data: {
+          attributes: {
+            payment_method: paymentMethodId,
+            return_url: `${process.env.FRONTEND_URL}/orders?paymentSuccess=true&orderId=${order._id}`,
+          },
+        },
+      },
+      {
+        headers: {
+          Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
+        },
+      }
+    );
+    const paymentUrl = attachResponse.data.data.attributes.next_action?.redirect.url;
+    if (!paymentUrl) {
+      return res.status(500).json({ success: false, message: "Failed to generate payment URL." });
+    }
+    return res.json({ success: true, paymentUrl });
+  } catch (error) {
+    console.error("❌ Error in payExistingOrderGcash:", error.response?.data || error.message);
+    res.status(500).json({ success: false, message: "Something went wrong with the GCash payment." });
+  }
+};
+
+export { placeOrderGcash, verifyGCashPayment, payExistingOrderGcash };
