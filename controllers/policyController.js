@@ -1,5 +1,7 @@
 import Policy from '../models/policyModel.js';
 import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
 
 // Multer configuration for file uploads
 const storage = multer.diskStorage({
@@ -39,7 +41,6 @@ export const addPolicy = async (req, res) => {
 };
 
 // Update an existing policy
-// Update a policy
 export const updatePolicy = async (req, res) => {
   try {
     const { title, description } = req.body;
@@ -51,7 +52,7 @@ export const updatePolicy = async (req, res) => {
     // Delete old image if a new image is uploaded
     if (req.file) {
       if (policy.image) {
-        const oldImagePath = path.join('backend', policy.image);
+        const oldImagePath = path.join(process.cwd(), 'Ecommerce-server', policy.image);
         if (fs.existsSync(oldImagePath)) {
           fs.unlinkSync(oldImagePath);
         }
@@ -65,6 +66,7 @@ export const updatePolicy = async (req, res) => {
     await policy.save();
     res.json(policy);
   } catch (error) {
+    console.error('Error updating policy:', error);
     res.status(500).json({ error: 'Failed to update policy' });
   }
 };
@@ -79,7 +81,7 @@ export const deletePolicy = async (req, res) => {
 
     // Remove image file
     if (policy.image) {
-      const imagePath = path.join('backend', policy.image);
+      const imagePath = path.join(process.cwd(), 'Ecommerce-server', policy.image);
       if (fs.existsSync(imagePath)) {
         fs.unlinkSync(imagePath);
       }
@@ -88,6 +90,7 @@ export const deletePolicy = async (req, res) => {
     await Policy.findByIdAndDelete(id);
     res.json({ message: 'Policy deleted successfully' });
   } catch (error) {
+    console.error('Error deleting policy:', error);
     res.status(500).json({ error: 'Failed to delete policy' });
   }
 };
