@@ -277,7 +277,7 @@ export const getTrackingInfo = async (req, res) => {
                        order.tracking?.courier ||
                        order.tracking?.courierName;
 
-    console.log('🎯 Detected values:', {
+    console.log('Detected values:', {
       trackingNumber,
       courierCode,
       hasTrackingNumber: !!trackingNumber,
@@ -285,7 +285,7 @@ export const getTrackingInfo = async (req, res) => {
     });
 
     if (!trackingNumber || !courierCode) {
-      console.log('❌ Missing tracking info:', {
+      console.log(' Missing tracking info:', {
         missingTrackingNumber: !trackingNumber,
         missingCourierCode: !courierCode,
         availableFields: order.tracking ? Object.keys(order.tracking) : 'No tracking object'
@@ -303,7 +303,7 @@ export const getTrackingInfo = async (req, res) => {
       });
     }
 
-    console.log('🌐 Making API call to TrackingMore with:', {
+    console.log('Making API call to TrackingMore with:', {
       trackingNumber,
       courierCode,
       apiKeyExists: !!API_KEY,
@@ -325,7 +325,7 @@ export const getTrackingInfo = async (req, res) => {
       }
     );
 
-    console.log('📡 TrackingMore API Response:', {
+    console.log('TrackingMore API Response:', {
       status: response.status,
       hasData: !!response.data,
       dataKeys: response.data ? Object.keys(response.data) : [],
@@ -333,12 +333,12 @@ export const getTrackingInfo = async (req, res) => {
     });
 
     // DEBUG: Log full API response
-    console.log('📋 Full API Response:', JSON.stringify(response.data, null, 2));
+    console.log('Full API Response:', JSON.stringify(response.data, null, 2));
 
     const trackingList = response.data?.data;
     const trackingData = trackingList?.[0];
 
-    console.log('📊 Tracking Data Analysis:', {
+    console.log('Tracking Data Analysis:', {
       hasTrackingList: !!trackingList,
       trackingListLength: trackingList?.length || 0,
       hasTrackingData: !!trackingData,
@@ -346,7 +346,7 @@ export const getTrackingInfo = async (req, res) => {
     });
 
     if (!trackingData) {
-      console.log('❌ No tracking data returned from API');
+      console.log('No tracking data returned from API');
       return res.status(404).json({
         success: false,
         message: 'Tracking data not found',
@@ -358,7 +358,7 @@ export const getTrackingInfo = async (req, res) => {
       });
     }
 
-    console.log('✅ Tracking data found:', {
+    console.log('Tracking data found:', {
       status: trackingData.status,
       currentOrderStatus: order.tracking?.status,
       statusChanged: trackingData.status !== order.tracking?.status
@@ -371,9 +371,9 @@ export const getTrackingInfo = async (req, res) => {
       latestCheckpointStatus = trackinfo[0].checkpoint_delivery_status || latestCheckpointStatus;
     }
     if (latestCheckpointStatus && latestCheckpointStatus !== order.tracking?.status) {
-      console.log('🔄 Updating order status from', order.tracking?.status, 'to', latestCheckpointStatus);
+      console.log('Updating order status from', order.tracking?.status, 'to', latestCheckpointStatus);
       const newStatus = mapStatus(latestCheckpointStatus);
-      console.log('📝 Mapped status:', {
+      console.log('Mapped status:', {
         trackingStatus: latestCheckpointStatus,
         mappedStatus: newStatus
       });
@@ -402,7 +402,7 @@ export const getTrackingInfo = async (req, res) => {
         { new: true }
       );
 
-      console.log('✅ Order updated successfully');
+      console.log('Order updated successfully');
 
       // Emit WebSocket events to frontend (if io is available)
       if (typeof io !== 'undefined') {
@@ -411,13 +411,13 @@ export const getTrackingInfo = async (req, res) => {
         io.to(`order_${req.params.orderId}`).emit('orderStatusUpdate', updatedOrder);
         console.log('📡 WebSocket events emitted');
       } else {
-        console.log('⚠️ WebSocket (io) not available');
+        console.log('WebSocket (io) not available');
       }
     } else {
-      console.log('ℹ️ No status update needed');
+      console.log('ℹNo status update needed');
     }
 
-    console.log('✅ Returning tracking data successfully');
+    console.log('Returning tracking data successfully');
 
     return res.json({
       success: true,
@@ -431,7 +431,7 @@ export const getTrackingInfo = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error fetching tracking info:');
+    console.error('Error fetching tracking info:');
     console.error('Error message:', error.message);
     console.error('Error stack:', error.stack);
     
@@ -562,7 +562,7 @@ export const detectCarrier = async (req, res) => {
     return res.status(200).json(response.data);
 
   } catch (error) {
-    console.error('❌ Error from TrackingMore:', {
+    console.error('Error from TrackingMore:', {
       status: error.response?.status,
       data: error.response?.data
     });
