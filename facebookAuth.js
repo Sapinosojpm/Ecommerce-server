@@ -16,7 +16,7 @@ passport.use(new FacebookStrategy({
     callbackURL: process.env.FACEBOOK_CALLBACK_URL,
     profileFields: ['id', 'displayName', 'emails'],
     enableProof: true,
-    scope: ['email', 'pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'pages_messaging']
+    scope: ['email', 'pages_show_list', 'pages_read_engagement', 'pages_manage_posts']
   },
   function(accessToken, refreshToken, profile, done) {
     // You can store accessToken in DB for the user here

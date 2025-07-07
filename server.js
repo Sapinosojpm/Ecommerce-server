@@ -163,8 +163,8 @@ app.use(session({
   resave: false,
   saveUninitialized: true,
   cookie: {
-    sameSite: 'lax', // allow cross-origin for localhost
-    secure: false    // not using HTTPS in local dev
+    sameSite: 'none', // REQUIRED for cross-domain cookies (Vercel/Render)
+    secure: true      // REQUIRED for HTTPS (production)
   }
 }));
 app.use(passport.initialize());
