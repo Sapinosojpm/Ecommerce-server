@@ -146,12 +146,18 @@ if (!fs.existsSync(uploadPath)) {
 // Middleware
 app.use(express.json());
 
-app.use(
-  cors({
-    origin: allowedOrigins,
-    credentials: true,
-  })
-);
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS error: Origin not allowed'));
+    }
+  },
+  credentials: true
+}));
+
 
 // Chat system variables
 const activeAdmins = new Set();
