@@ -201,7 +201,7 @@ app.get('/api/facebook/pages', async (req, res) => {
 });
 
 app.post('/api/facebook/post', async (req, res) => {
-  const { pageId, message } = req.body;
+  const { pageId, message, product } = req.body;
   const userAccessToken = req.session.fbAccessToken;
   if (!userAccessToken) return res.status(401).json({ error: 'Not authenticated with Facebook' });
 
@@ -210,12 +210,29 @@ app.post('/api/facebook/post', async (req, res) => {
     const pageRes = await axios.get(`https://graph.facebook.com/v18.0/${pageId}?fields=access_token&access_token=${userAccessToken}`);
     const pageAccessToken = pageRes.data.access_token;
 
-    // Post to Page
-    const postRes = await axios.post(`https://graph.facebook.com/v18.0/${pageId}/feed`, {
-      message,
-      access_token: pageAccessToken
-    });
-    res.json(postRes.data);
+    let postMessage = message;
+    let imageUrl = null;
+    if (product) {
+      postMessage = `New Product: ${product.name}\nPrice: $${product.price}\n${product.description || ''}`;
+      imageUrl = product.imageUrl;
+    }
+
+    let fbResponse;
+    if (imageUrl) {
+      // Post photo with caption
+      fbResponse = await axios.post(`https://graph.facebook.com/v18.0/${pageId}/photos`, {
+        url: imageUrl,
+        caption: postMessage,
+        access_token: pageAccessToken
+      });
+    } else {
+      // Post text only
+      fbResponse = await axios.post(`https://graph.facebook.com/v18.0/${pageId}/feed`, {
+        message: postMessage,
+        access_token: pageAccessToken
+      });
+    }
+    res.json(fbResponse.data);
   } catch (err) {
     res.status(500).json({ error: err.response?.data || err.message });
   }
