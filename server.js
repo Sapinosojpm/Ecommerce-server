@@ -158,9 +158,11 @@ app.use(cors({
   credentials: true
 }));
 
-// Debug: log session for every request
+// Debug: log session, headers, and cookies for every request
 app.use((req, res, next) => {
   console.log('Session:', req.session);
+  console.log('Headers:', req.headers);
+  console.log('Cookies:', req.cookies);
   next();
 });
 
@@ -180,7 +182,8 @@ app.use(session({
   }),
   cookie: {
     sameSite: 'none', // REQUIRED for cross-domain cookies (Vercel/Render)
-    secure: true      // REQUIRED for HTTPS (production)
+    secure: true,     // REQUIRED for HTTPS (production)
+    // domain: '.yourdomain.com', // Uncomment and set if frontend/backend are on subdomains
   }
 }));
 app.use(passport.initialize());
@@ -196,7 +199,8 @@ app.get('/api/auth/facebook/callback',
   (req, res) => {
     req.session.fbAccessToken = req.user.accessToken;
     req.session.save(() => {
-      res.send('Facebook authentication successful! You can close this window.');
+      // Redirect to frontend after successful login so browser gets the session cookie
+      res.redirect(process.env.FRONTEND_URL + '/facebook-auth-success');
     });
   }
 );
