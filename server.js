@@ -158,6 +158,11 @@ app.use(cors({
   credentials: true
 }));
 
+// Debug: log session for every request
+app.use((req, res, next) => {
+  console.log('Session:', req.session);
+  next();
+});
 
 // Chat system variables
 const activeAdmins = new Set();
@@ -168,7 +173,7 @@ const onlineUsers = new Set(); // Track online users
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your_random_secret',
   resave: false,
-  saveUninitialized: true,
+  saveUninitialized: false, // CHANGED from true to false for proper session handling
   store: MongoStore.create({
     mongoUrl: process.env.MONGODB_URI,
     collectionName: 'sessions'
