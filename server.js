@@ -80,6 +80,8 @@ import {
 import returnRouter from './routes/returnRoute.js';
 import googleAuthRouter from './routes/googleAuthRoutes.js';
 import trackingRoutes from './routes/trackingRoutes.js';
+import session from 'express-session';
+import passport from './facebookAuth.js';
 
 dotenv.config();
 
@@ -145,19 +147,7 @@ app.use(express.json());
 
 app.use(
   cors({
-    origin: function (origin, callback) {
-      console.log("🔍 CORS check from origin:", origin);
-
-      if (!origin) return callback(null, true);
-
-      const trimmedOrigin = origin.replace(/\/$/, ""); // remove trailing slash
-
-      if (allowedOrigins.includes(trimmedOrigin)) {
-        return callback(null, true);
-      } else {
-        return callback(new Error("Not allowed by CORS"));
-      }
-    },
+    origin: allowedOrigins,
     credentials: true,
   })
 );
@@ -166,6 +156,70 @@ app.use(
 const activeAdmins = new Set();
 const userChatRooms = new Map(); // Stores chat history per user
 const onlineUsers = new Set(); // Track online users
+
+// Add session and passport middleware
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'your_random_secret',
+  resave: false,
+  saveUninitialized: true,
+  cookie: {
+    sameSite: 'lax', // allow cross-origin for localhost
+    secure: false    // not using HTTPS in local dev
+  }
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+
+// Facebook OAuth routes
+import axios from 'axios';
+
+app.get('/api/auth/facebook', passport.authenticate('facebook', { scope: ['email', 'pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'pages_messaging'] }));
+
+app.get('/api/auth/facebook/callback',
+  passport.authenticate('facebook', { failureRedirect: '/login', session: true }),
+  (req, res) => {
+    // Save accessToken to session
+    req.session.fbAccessToken = req.user.accessToken;
+    res.send('Facebook authentication successful! You can close this window.');
+  }
+);
+
+app.get('/api/facebook/pages', async (req, res) => {
+  console.log('Session:', req.session);
+  const accessToken = req.session.fbAccessToken;
+  if (!accessToken) {
+    console.log('No access token in session!');
+    return res.status(401).json({ error: 'Not authenticated with Facebook' });
+  }
+  try {
+    const response = await axios.get(`https://graph.facebook.com/v18.0/me/accounts?access_token=${accessToken}`);
+    res.json(response.data);
+  } catch (err) {
+    console.log('Facebook API error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/facebook/post', async (req, res) => {
+  const { pageId, message } = req.body;
+  const userAccessToken = req.session.fbAccessToken;
+  if (!userAccessToken) return res.status(401).json({ error: 'Not authenticated with Facebook' });
+
+  try {
+    // Get Page Access Token
+    const pageRes = await axios.get(`https://graph.facebook.com/v18.0/${pageId}?fields=access_token&access_token=${userAccessToken}`);
+    const pageAccessToken = pageRes.data.access_token;
+
+    // Post to Page
+    const postRes = await axios.post(`https://graph.facebook.com/v18.0/${pageId}/feed`, {
+      message,
+      access_token: pageAccessToken
+    });
+    res.json(postRes.data);
+  } catch (err) {
+    res.status(500).json({ error: err.response?.data || err.message });
+  }
+});
 
 // Socket.IO Connection Handler
 io.on('connection', (socket) => {
