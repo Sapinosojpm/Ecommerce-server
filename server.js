@@ -183,9 +183,10 @@ app.get('/api/auth/facebook', passport.authenticate('facebook', { scope: ['email
 app.get('/api/auth/facebook/callback',
   passport.authenticate('facebook', { failureRedirect: '/login', session: true }),
   (req, res) => {
-    // Save accessToken to session
     req.session.fbAccessToken = req.user.accessToken;
-    res.send('Facebook authentication successful! You can close this window.');
+    req.session.save(() => {
+      res.send('Facebook authentication successful! You can close this window.');
+    });
   }
 );
 
