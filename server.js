@@ -173,7 +173,7 @@ app.use(passport.session());
 // Facebook OAuth routes
 import axios from 'axios';
 
-app.get('/api/auth/facebook', passport.authenticate('facebook', { scope: ['email', 'pages_show_list', 'pages_read_engagement', 'pages_manage_posts', 'pages_messaging'] }));
+app.get('/api/auth/facebook', passport.authenticate('facebook', { scope: ['email', 'pages_show_list', 'pages_read_engagement', 'pages_manage_posts'] }));
 
 app.get('/api/auth/facebook/callback',
   passport.authenticate('facebook', { failureRedirect: '/login', session: true }),
