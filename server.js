@@ -82,6 +82,7 @@ import googleAuthRouter from './routes/googleAuthRoutes.js';
 import trackingRoutes from './routes/trackingRoutes.js';
 import session from 'express-session';
 import passport from './facebookAuth.js';
+import MongoStore from 'connect-mongo';
 
 dotenv.config();
 
@@ -162,6 +163,10 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'your_random_secret',
   resave: false,
   saveUninitialized: true,
+  store: MongoStore.create({
+    mongoUrl: process.env.MONGODB_URI,
+    collectionName: 'sessions'
+  }),
   cookie: {
     sameSite: 'none', // REQUIRED for cross-domain cookies (Vercel/Render)
     secure: true      // REQUIRED for HTTPS (production)
