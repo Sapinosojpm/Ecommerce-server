@@ -174,9 +174,7 @@ app.use(session({
 
 // Debug: log session, headers, and cookies for every request (after session middleware)
 app.use((req, res, next) => {
-  console.log('[DEBUG][POST-SESSION] Session:', req.session);
-  console.log('[DEBUG][POST-SESSION] Headers:', req.headers);
-  console.log('[DEBUG][POST-SESSION] Cookies:', req.cookies);
+
   next();
 });
 
