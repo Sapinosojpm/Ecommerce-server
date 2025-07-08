@@ -211,6 +211,12 @@ app.get('/api/auth/facebook/callback',
   }
 );
 
+// Handle failed Facebook login gracefully
+app.get('/login', (req, res) => {
+  // Redirect to frontend with error message
+  res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=facebook_login_failed`);
+});
+
 // Middleware to require and validate token, set req.fbAccessToken
 function requireFBToken(req, res, next) {
   const auth = req.headers.authorization;
