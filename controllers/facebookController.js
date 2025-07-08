@@ -52,7 +52,10 @@ const facebookCallback = [
       const token = crypto.randomBytes(32).toString('hex');
       fbTokenStore.set(token, fbAccessToken);
       console.log(`[FB CALLBACK] Success! Issued token: ${token}`);
-      res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?token=${token}`);
+      console.log(`[FB CALLBACK] FRONTEND_URL: ${process.env.FRONTEND_URL}`);
+      const redirectUrl = `${process.env.FRONTEND_URL}/facebook-manager?token=${token}`;
+      console.log(`[FB CALLBACK] Redirecting to: ${redirectUrl}`);
+      res.redirect(redirectUrl);
     })(req, res, next);
   }
 ];
