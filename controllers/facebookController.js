@@ -52,9 +52,12 @@ const facebookCallback = [
       const fbAccessToken = user.accessToken;
       const userId = user.id || user._id || (user.profile && user.profile.id);
       const token = crypto.randomBytes(32).toString('hex');
+      console.log("[FB CALLBACK] fbAccessToken:", fbAccessToken);
+      console.log("[FB CALLBACK] userId:", userId);
+      console.log("[FB CALLBACK] token:", token);
       try {
-        await FbToken.create({ token, fbAccessToken, userId });
-        console.log(`[FB CALLBACK] Success! Issued token: ${token} for user: ${userId}`);
+        const saved = await FbToken.create({ token, fbAccessToken, userId });
+        console.log("[FB CALLBACK] Saved token doc:", saved);
         const redirectUrl = `${process.env.FRONTEND_URL}/facebook-manager?token=${token}`;
         console.log(`[FB CALLBACK] Redirecting to: ${redirectUrl}`);
         res.redirect(redirectUrl);
