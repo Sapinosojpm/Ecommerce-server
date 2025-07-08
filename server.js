@@ -83,6 +83,7 @@ import trackingRoutes from './routes/trackingRoutes.js';
 import session from 'express-session';
 import passport from './facebookAuth.js';
 import MongoStore from 'connect-mongo';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -202,7 +203,7 @@ app.get('/api/auth/facebook/callback',
   passport.authenticate('facebook', { failureRedirect: '/login', session: false }),
   (req, res) => {
     const fbAccessToken = req.user.accessToken;
-    const token = require('crypto').randomBytes(32).toString('hex');
+    const token = crypto.randomBytes(32).toString('hex');
     fbTokenStore.set(token, fbAccessToken);
     // Redirect to frontend with token in URL
     res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?token=${token}`);
