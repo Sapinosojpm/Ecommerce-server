@@ -31,6 +31,12 @@ const facebookCallback = [
     session: false
   }),
   (req, res) => {
+    // Debug log to verify callback is hit
+    console.log("Facebook callback hit", req.user);
+    if (!req.user || !req.user.accessToken) {
+      // If user or accessToken is missing, redirect with error
+      return res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=facebook_login_failed`);
+    }
     const fbAccessToken = req.user.accessToken;
     const token = crypto.randomBytes(32).toString('hex');
     fbTokenStore.set(token, fbAccessToken);
