@@ -199,114 +199,71 @@ app.get('/api/auth/facebook', passport.authenticate('facebook', { scope: ['email
 const fbTokenStore = new Map();
 
 // Facebook OAuth callback: generate token, store mapping, redirect to frontend with token
-// Facebook OAuth routes
-app.get('/api/auth/facebook', passport.authenticate('facebook', {
-  scope: ['email', 'pages_show_list', 'pages_read_engagement', 'pages_manage_posts'],
-  session: false
-}));
-
-// Facebook OAuth callback
 app.get('/api/auth/facebook/callback',
-  passport.authenticate('facebook', { 
-    failureRedirect: '/login',
-    session: false 
-  }),
+  passport.authenticate('facebook', { failureRedirect: '/login', session: false }),
   (req, res) => {
-    if (!req.user || !req.user.accessToken) {
-      return res.status(400).json({ error: 'Failed to authenticate with Facebook' });
-    }
-    
-    // Create a JWT token with the Facebook access token embedded
-    const token = jwt.sign(
-      { 
-        fbAccessToken: req.user.accessToken,
-        userId: req.user.id 
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '1h' }
-    );
-    
-    // Redirect to frontend with token
+    const fbAccessToken = req.user.accessToken;
+    // Use the same key as frontend: 'fbAuthToken'
+    const token = crypto.randomBytes(32).toString('hex');
+    fbTokenStore.set(token, fbAccessToken);
+    // Redirect to frontend with token in URL
     res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?token=${token}`);
   }
 );
 
-// Middleware to verify JWT and attach Facebook token
-function verifyFacebookToken(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Authorization token required' });
+// Middleware to require and validate token, set req.fbAccessToken
+function requireFBToken(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No token provided' });
   }
-  
-  const token = authHeader.split(' ')[1];
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.fbAccessToken = decoded.fbAccessToken;
-    next();
-  } catch (err) {
+  const token = auth.split(' ')[1];
+  const fbAccessToken = fbTokenStore.get(token);
+  if (!fbAccessToken) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
+  req.fbAccessToken = fbAccessToken;
+  next();
 }
 
-// Facebook API endpoints
-app.get('/api/facebook/pages', verifyFacebookToken, async (req, res) => {
+// Facebook API endpoints using token-based auth
+app.get('/api/facebook/pages', requireFBToken, async (req, res) => {
   try {
-    const response = await axios.get(`https://graph.facebook.com/v18.0/me/accounts`, {
-      params: {
-        access_token: req.fbAccessToken,
-        fields: 'id,name,access_token'
-      }
-    });
-    res.json({
-      success: true,
-      data: response.data.data
-    });
+    const response = await axios.get(`https://graph.facebook.com/v18.0/me/accounts?access_token=${req.fbAccessToken}`);
+    res.json(response.data);
   } catch (err) {
-    console.error('Facebook API error:', err.response?.data || err.message);
-    res.status(500).json({ 
-      success: false,
-      error: err.response?.data?.error?.message || 'Failed to fetch Facebook pages' 
-    });
+    res.status(500).json({ error: err.response?.data || err.message });
   }
 });
 
-app.post('/api/facebook/post', verifyFacebookToken, async (req, res) => {
+app.post('/api/facebook/post', requireFBToken, async (req, res) => {
   const { pageId, message, product } = req.body;
-  
   try {
-    // First get page access token
-    const pageTokenRes = await axios.get(`https://graph.facebook.com/v18.0/${pageId}`, {
-      params: {
-        fields: 'access_token',
-        access_token: req.fbAccessToken
-      }
-    });
-    
-    const pageAccessToken = pageTokenRes.data.access_token;
-    let postData = { message };
-    
-    if (product && product.imageUrl) {
-      // Post with image
-      const response = await axios.post(`https://graph.facebook.com/v18.0/${pageId}/photos`, {
-        url: product.imageUrl,
-        caption: message,
-        access_token: pageAccessToken
-      });
-      res.json({ success: true, id: response.data.id });
-    } else {
-      // Post without image
-      const response = await axios.post(`https://graph.facebook.com/v18.0/${pageId}/feed`, {
-        message,
-        access_token: pageAccessToken
-      });
-      res.json({ success: true, id: response.data.id });
+    // Get Page Access Token
+    const pageRes = await axios.get(`https://graph.facebook.com/v18.0/${pageId}?fields=access_token&access_token=${req.fbAccessToken}`);
+    const pageAccessToken = pageRes.data.access_token;
+    let postMessage = message;
+    let imageUrl = null;
+    if (product) {
+      postMessage = `New Product: ${product.name}\nPrice: $${product.price}\n${product.description || ''}`;
+      imageUrl = product.imageUrl;
     }
+    let fbResponse;
+    if (imageUrl) {
+      fbResponse = await axios.post(`https://graph.facebook.com/v18.0/${pageId}/photos`, {
+        url: imageUrl,
+        caption: postMessage,
+        access_token: pageAccessToken
+      });
+    } else {
+      fbResponse = await axios.post(`https://graph.facebook.com/v18.0/${pageId}/feed`, {
+        message: postMessage,
+        access_token: pageAccessToken
+      });
+    }
+    res.json(fbResponse.data);
   } catch (err) {
-    console.error('Facebook post error:', err.response?.data || err.message);
-    res.status(500).json({ 
-      success: false,
-      error: err.response?.data?.error?.message || 'Failed to post to Facebook' 
-    });
+    res.status(500).json({ error: err.response?.data || err.message });
   }
 });
 // Socket.IO Connection Handler
