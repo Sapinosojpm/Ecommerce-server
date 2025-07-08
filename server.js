@@ -155,13 +155,7 @@ app.use(cors({
   credentials: true
 }));
 
-// Debug: log session, headers, and cookies for every request (before session middleware)
-app.use((req, res, next) => {
-  console.log('[DEBUG][PRE-SESSION] Session:', req.session);
-  console.log('[DEBUG][PRE-SESSION] Headers:', req.headers);
-  console.log('[DEBUG][PRE-SESSION] Cookies:', req.cookies);
-  next();
-});
+// Remove noisy debug logs for session, headers, and cookies
 
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your_random_secret',
