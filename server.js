@@ -194,60 +194,66 @@ import axios from 'axios';
 
 app.get('/api/auth/facebook', passport.authenticate('facebook', { scope: ['email', 'pages_show_list', 'pages_read_engagement', 'pages_manage_posts'] }));
 
+// In-memory token store for Facebook access tokens
+const fbTokenStore = new Map();
+
+// Facebook OAuth callback: generate token, store mapping, redirect to frontend with token
 app.get('/api/auth/facebook/callback',
-  passport.authenticate('facebook', { failureRedirect: '/login', session: true }),
+  passport.authenticate('facebook', { failureRedirect: '/login', session: false }),
   (req, res) => {
-    req.session.fbAccessToken = req.user.accessToken;
-    req.session.save(() => {
-      // Redirect to frontend after successful login so browser gets the session cookie
-      res.redirect(process.env.FRONTEND_URL + '/facebook-auth-success');
-    });
+    const fbAccessToken = req.user.accessToken;
+    const token = require('crypto').randomBytes(32).toString('hex');
+    fbTokenStore.set(token, fbAccessToken);
+    // Redirect to frontend with token in URL
+    res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?token=${token}`);
   }
 );
 
-app.get('/api/facebook/pages', async (req, res) => {
-  console.log('Session:', req.session);
-  const accessToken = req.session.fbAccessToken;
-  if (!accessToken) {
-    console.log('No access token in session!');
-    return res.status(401).json({ error: 'Not authenticated with Facebook' });
+// Middleware to require and validate token, set req.fbAccessToken
+function requireFBToken(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No token provided' });
   }
+  const token = auth.split(' ')[1];
+  const fbAccessToken = fbTokenStore.get(token);
+  if (!fbAccessToken) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+  req.fbAccessToken = fbAccessToken;
+  next();
+}
+
+// Facebook API endpoints using token-based auth
+app.get('/api/facebook/pages', requireFBToken, async (req, res) => {
   try {
-    const response = await axios.get(`https://graph.facebook.com/v18.0/me/accounts?access_token=${accessToken}`);
+    const response = await axios.get(`https://graph.facebook.com/v18.0/me/accounts?access_token=${req.fbAccessToken}`);
     res.json(response.data);
   } catch (err) {
-    console.log('Facebook API error:', err.response?.data || err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.response?.data || err.message });
   }
 });
 
-app.post('/api/facebook/post', async (req, res) => {
+app.post('/api/facebook/post', requireFBToken, async (req, res) => {
   const { pageId, message, product } = req.body;
-  const userAccessToken = req.session.fbAccessToken;
-  if (!userAccessToken) return res.status(401).json({ error: 'Not authenticated with Facebook' });
-
   try {
     // Get Page Access Token
-    const pageRes = await axios.get(`https://graph.facebook.com/v18.0/${pageId}?fields=access_token&access_token=${userAccessToken}`);
+    const pageRes = await axios.get(`https://graph.facebook.com/v18.0/${pageId}?fields=access_token&access_token=${req.fbAccessToken}`);
     const pageAccessToken = pageRes.data.access_token;
-
     let postMessage = message;
     let imageUrl = null;
     if (product) {
       postMessage = `New Product: ${product.name}\nPrice: $${product.price}\n${product.description || ''}`;
       imageUrl = product.imageUrl;
     }
-
     let fbResponse;
     if (imageUrl) {
-      // Post photo with caption
       fbResponse = await axios.post(`https://graph.facebook.com/v18.0/${pageId}/photos`, {
         url: imageUrl,
         caption: postMessage,
         access_token: pageAccessToken
       });
     } else {
-      // Post text only
       fbResponse = await axios.post(`https://graph.facebook.com/v18.0/${pageId}/feed`, {
         message: postMessage,
         access_token: pageAccessToken
