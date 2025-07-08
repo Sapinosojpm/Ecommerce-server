@@ -31,15 +31,19 @@ const facebookCallback = [
     session: false
   }),
   (req, res) => {
-    // Debug log to verify callback is hit
-    console.log("Facebook callback hit", req.user);
+    // Enhanced debug logging
+    console.log("[FB CALLBACK] req.user:", req.user);
+    console.log("[FB CALLBACK] req.session:", req.session);
+    console.log("[FB CALLBACK] req.query:", req.query);
+    console.log("[FB CALLBACK] req.body:", req.body);
     if (!req.user || !req.user.accessToken) {
-      // If user or accessToken is missing, redirect with error
+      console.error("[FB CALLBACK] Missing user or accessToken");
       return res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=facebook_login_failed`);
     }
     const fbAccessToken = req.user.accessToken;
     const token = crypto.randomBytes(32).toString('hex');
     fbTokenStore.set(token, fbAccessToken);
+    console.log(`[FB CALLBACK] Success! Issued token: ${token}`);
     res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?token=${token}`);
   }
 ];
