@@ -64,8 +64,8 @@ const facebookCallback = async (req, res) => {
     const token = crypto.randomBytes(32).toString('hex');
     await FbToken.create({ token, fbAccessToken, userId: user.id });
 
-    // 4. Redirect to frontend with your token
-    res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?token=${token}`);
+    // 4. Redirect to frontend with your token (to a special close page for popup handling)
+    res.redirect(`${process.env.FRONTEND_URL}/facebook-oauth-close?token=${token}`);
   } catch (err) {
     console.error('[FB CALLBACK] Error:', err.response?.data || err.message);
     res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=facebook_login_failed`);

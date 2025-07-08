@@ -149,8 +149,10 @@ app.use(express.json());
 
 app.use(cors({
   origin: [
-    'https://ecommerce-frontend-admin-tawny.vercel.app',
-    // Add other allowed origins if needed
+    'http://localhost:5174', // local frontend
+    'http://localhost:5173',
+    'https://ecommerce-frontend-admin-tawny.vercel.app', // production admin
+    // add any other allowed origins if needed
   ],
   credentials: true
 }));
