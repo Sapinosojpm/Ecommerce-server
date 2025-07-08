@@ -37,7 +37,7 @@ import adminDiscountRoutes from './routes/adminDiscountRoutes.js';
 import { EventEmitter } from 'events';
 import faqRoutes from "./routes/faq.js";
 import adminRouter from './routes/userRoute.js';
-import facebookRouter from './routes/authFbRoutes.js';
+import facebookRoutes from './routes/facebookRoutes.js';
 import discountRoutes from "./routes/discountRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import subscriberRoutes from './routes/subscriberRoutes.js';
@@ -190,88 +190,6 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Facebook OAuth routes
-import axios from 'axios';
-
-app.get('/api/auth/facebook', passport.authenticate('facebook', { scope: ['email', 'pages_show_list', 'pages_read_engagement', 'pages_manage_posts'] }));
-
-// In-memory token store for Facebook access tokens
-const fbTokenStore = new Map();
-
-// Facebook OAuth callback: generate token, store mapping, redirect to frontend with token
-app.get('/api/auth/facebook/callback',
-  passport.authenticate('facebook', { failureRedirect: '/login', session: false }),
-  (req, res) => {
-    const fbAccessToken = req.user.accessToken;
-    // Use the same key as frontend: 'fbAuthToken'
-    const token = crypto.randomBytes(32).toString('hex');
-    fbTokenStore.set(token, fbAccessToken);
-    // Redirect to frontend with token in URL
-    res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?token=${token}`);
-  }
-);
-
-// Handle failed Facebook login gracefully
-app.get('/login', (req, res) => {
-  // Redirect to frontend with error message
-  res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=facebook_login_failed`);
-});
-
-// Middleware to require and validate token, set req.fbAccessToken
-function requireFBToken(req, res, next) {
-  const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'No token provided' });
-  }
-  const token = auth.split(' ')[1];
-  const fbAccessToken = fbTokenStore.get(token);
-  if (!fbAccessToken) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
-  }
-  req.fbAccessToken = fbAccessToken;
-  next();
-}
-
-// Facebook API endpoints using token-based auth
-app.get('/api/facebook/pages', requireFBToken, async (req, res) => {
-  try {
-    const response = await axios.get(`https://graph.facebook.com/v18.0/me/accounts?access_token=${req.fbAccessToken}`);
-    res.json(response.data);
-  } catch (err) {
-    res.status(500).json({ error: err.response?.data || err.message });
-  }
-});
-
-app.post('/api/facebook/post', requireFBToken, async (req, res) => {
-  const { pageId, message, product } = req.body;
-  try {
-    // Get Page Access Token
-    const pageRes = await axios.get(`https://graph.facebook.com/v18.0/${pageId}?fields=access_token&access_token=${req.fbAccessToken}`);
-    const pageAccessToken = pageRes.data.access_token;
-    let postMessage = message;
-    let imageUrl = null;
-    if (product) {
-      postMessage = `New Product: ${product.name}\nPrice: $${product.price}\n${product.description || ''}`;
-      imageUrl = product.imageUrl;
-    }
-    let fbResponse;
-    if (imageUrl) {
-      fbResponse = await axios.post(`https://graph.facebook.com/v18.0/${pageId}/photos`, {
-        url: imageUrl,
-        caption: postMessage,
-        access_token: pageAccessToken
-      });
-    } else {
-      fbResponse = await axios.post(`https://graph.facebook.com/v18.0/${pageId}/feed`, {
-        message: postMessage,
-        access_token: pageAccessToken
-      });
-    }
-    res.json(fbResponse.data);
-  } catch (err) {
-    res.status(500).json({ error: err.response?.data || err.message });
-  }
-});
 // Socket.IO Connection Handler
 io.on('connection', (socket) => {
   console.log('New client connected:', socket.id);
@@ -794,7 +712,7 @@ app.use("/api/youtube", youtubeRoutes);
 app.use('/api/subscribers', subscriberRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api", discountRoutes);
-app.use("/api/user", facebookRouter);
+app.use("/api/user", facebookRoutes);
 app.use("/api", eventRoutes);
 app.use('/api', uploadRoutes);
 app.use('/api', dealRoutes);
