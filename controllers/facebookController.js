@@ -26,7 +26,10 @@ const facebookAuth = passport.authenticate('facebook', { scope: ['email', 'pages
 
 // Facebook OAuth callback
 const facebookCallback = [
-  passport.authenticate('facebook', { failureRedirect: '/login', session: false }),
+  passport.authenticate('facebook', {
+    failureRedirect: `${process.env.FRONTEND_URL}/facebook-manager?error=facebook_login_failed`,
+    session: false
+  }),
   (req, res) => {
     const fbAccessToken = req.user.accessToken;
     const token = crypto.randomBytes(32).toString('hex');
