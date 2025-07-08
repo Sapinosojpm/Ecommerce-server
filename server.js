@@ -148,14 +148,10 @@ if (!fs.existsSync(uploadPath)) {
 app.use(express.json());
 
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('CORS error: Origin not allowed'));
-    }
-  },
+  origin: [
+    'https://ecommerce-frontend-admin-tawny.vercel.app',
+    // Add other allowed origins if needed
+  ],
   credentials: true
 }));
 
@@ -167,7 +163,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Add session and passport middleware
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your_random_secret',
   resave: false,
@@ -179,7 +174,7 @@ app.use(session({
   cookie: {
     sameSite: 'none', // REQUIRED for cross-domain cookies (Vercel/Render)
     secure: true,     // REQUIRED for HTTPS (production)
-    // domain: '.yourdomain.com', // Uncomment and set if frontend/backend are on subdomains
+    // domain: '.yourcustomdomain.com', // Uncomment and set if you have a custom domain for both frontend and backend
   }
 }));
 
