@@ -21,30 +21,39 @@ function requireFBToken(req, res, next) {
   next();
 }
 
+// Facebook Auth request logger
+function logFacebookAuthRequest(req, res, next) {
+  console.log(`[FB AUTH] ${req.method} ${req.originalUrl}`);
+  next();
+}
+
 // Facebook OAuth start
 const facebookAuth = passport.authenticate('facebook', { scope: ['email', 'pages_show_list', 'pages_read_engagement', 'pages_manage_posts'] });
 
-// Facebook OAuth callback
+// Facebook OAuth callback with custom error logging
 const facebookCallback = [
-  passport.authenticate('facebook', {
-    failureRedirect: `${process.env.FRONTEND_URL}/facebook-manager?error=facebook_login_failed`,
-    session: false
-  }),
-  (req, res) => {
-    // Enhanced debug logging
-    console.log("[FB CALLBACK] req.user:", req.user);
-    console.log("[FB CALLBACK] req.session:", req.session);
-    console.log("[FB CALLBACK] req.query:", req.query);
-    console.log("[FB CALLBACK] req.body:", req.body);
-    if (!req.user || !req.user.accessToken) {
-      console.error("[FB CALLBACK] Missing user or accessToken");
-      return res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=facebook_login_failed`);
-    }
-    const fbAccessToken = req.user.accessToken;
-    const token = crypto.randomBytes(32).toString('hex');
-    fbTokenStore.set(token, fbAccessToken);
-    console.log(`[FB CALLBACK] Success! Issued token: ${token}`);
-    res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?token=${token}`);
+  logFacebookAuthRequest,
+  (req, res, next) => {
+    passport.authenticate('facebook', (err, user, info) => {
+      if (err) {
+        console.error("[FB CALLBACK] Passport error:", err);
+        return res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=facebook_login_failed`);
+      }
+      if (!user) {
+        console.error("[FB CALLBACK] No user returned. Info:", info);
+        return res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=facebook_login_failed`);
+      }
+      // Enhanced debug logging
+      console.log("[FB CALLBACK] user:", user);
+      console.log("[FB CALLBACK] req.session:", req.session);
+      console.log("[FB CALLBACK] req.query:", req.query);
+      console.log("[FB CALLBACK] req.body:", req.body);
+      const fbAccessToken = user.accessToken;
+      const token = crypto.randomBytes(32).toString('hex');
+      fbTokenStore.set(token, fbAccessToken);
+      console.log(`[FB CALLBACK] Success! Issued token: ${token}`);
+      res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?token=${token}`);
+    })(req, res, next);
   }
 ];
 
