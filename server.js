@@ -159,18 +159,13 @@ app.use(cors({
   credentials: true
 }));
 
-// Debug: log session, headers, and cookies for every request
+// Debug: log session, headers, and cookies for every request (before session middleware)
 app.use((req, res, next) => {
-  console.log('Session:', req.session);
-  console.log('Headers:', req.headers);
-  console.log('Cookies:', req.cookies);
+  console.log('[DEBUG][PRE-SESSION] Session:', req.session);
+  console.log('[DEBUG][PRE-SESSION] Headers:', req.headers);
+  console.log('[DEBUG][PRE-SESSION] Cookies:', req.cookies);
   next();
 });
-
-// Chat system variables
-const activeAdmins = new Set();
-const userChatRooms = new Map(); // Stores chat history per user
-const onlineUsers = new Set(); // Track online users
 
 // Add session and passport middleware
 app.use(session({
@@ -187,6 +182,15 @@ app.use(session({
     // domain: '.yourdomain.com', // Uncomment and set if frontend/backend are on subdomains
   }
 }));
+
+// Debug: log session, headers, and cookies for every request (after session middleware)
+app.use((req, res, next) => {
+  console.log('[DEBUG][POST-SESSION] Session:', req.session);
+  console.log('[DEBUG][POST-SESSION] Headers:', req.headers);
+  console.log('[DEBUG][POST-SESSION] Cookies:', req.cookies);
+  next();
+});
+
 app.use(passport.initialize());
 app.use(passport.session());
 
