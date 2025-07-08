@@ -2,23 +2,27 @@ import express from 'express';
 import passport from '../facebookAuth.js';
 import crypto from 'crypto';
 import axios from 'axios';
-
-// In-memory token store for Facebook access tokens
-const fbTokenStore = new Map();
+import FbToken from '../models/fbTokenModel.js';
 
 // Middleware to require and validate token, set req.fbAccessToken
-function requireFBToken(req, res, next) {
+async function requireFBToken(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'No token provided' });
   }
   const token = auth.split(' ')[1];
-  const fbAccessToken = fbTokenStore.get(token);
-  if (!fbAccessToken) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
+  try {
+    const fbTokenDoc = await FbToken.findOne({ token });
+    if (!fbTokenDoc) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+    req.fbAccessToken = fbTokenDoc.fbAccessToken;
+    req.fbUserId = fbTokenDoc.userId;
+    next();
+  } catch (err) {
+    console.error('[requireFBToken] Error validating token:', err);
+    return res.status(500).json({ error: 'Token validation error' });
   }
-  req.fbAccessToken = fbAccessToken;
-  next();
 }
 
 // Facebook Auth request logger
@@ -33,8 +37,8 @@ const facebookAuth = passport.authenticate('facebook', { scope: ['email', 'pages
 // Facebook OAuth callback with custom error logging
 const facebookCallback = [
   logFacebookAuthRequest,
-  (req, res, next) => {
-    passport.authenticate('facebook', (err, user, info) => {
+  async (req, res, next) => {
+    passport.authenticate('facebook', async (err, user, info) => {
       if (err) {
         console.error("[FB CALLBACK] Passport error:", err);
         return res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=facebook_login_failed`);
@@ -45,17 +49,19 @@ const facebookCallback = [
       }
       // Enhanced debug logging
       console.log("[FB CALLBACK] user:", user);
-      console.log("[FB CALLBACK] req.session:", req.session);
-      console.log("[FB CALLBACK] req.query:", req.query);
-      console.log("[FB CALLBACK] req.body:", req.body);
       const fbAccessToken = user.accessToken;
+      const userId = user.id || user._id || (user.profile && user.profile.id);
       const token = crypto.randomBytes(32).toString('hex');
-      fbTokenStore.set(token, fbAccessToken);
-      console.log(`[FB CALLBACK] Success! Issued token: ${token}`);
-      console.log(`[FB CALLBACK] FRONTEND_URL: ${process.env.FRONTEND_URL}`);
-      const redirectUrl = `${process.env.FRONTEND_URL}/facebook-manager?token=${token}`;
-      console.log(`[FB CALLBACK] Redirecting to: ${redirectUrl}`);
-      res.redirect(redirectUrl);
+      try {
+        await FbToken.create({ token, fbAccessToken, userId });
+        console.log(`[FB CALLBACK] Success! Issued token: ${token} for user: ${userId}`);
+        const redirectUrl = `${process.env.FRONTEND_URL}/facebook-manager?token=${token}`;
+        console.log(`[FB CALLBACK] Redirecting to: ${redirectUrl}`);
+        res.redirect(redirectUrl);
+      } catch (dbErr) {
+        console.error('[FB CALLBACK] Error saving token to DB:', dbErr);
+        return res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=token_db_error`);
+      }
     })(req, res, next);
   }
 ];
