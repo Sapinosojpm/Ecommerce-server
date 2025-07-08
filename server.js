@@ -712,7 +712,7 @@ app.use("/api/youtube", youtubeRoutes);
 app.use('/api/subscribers', subscriberRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api", discountRoutes);
-app.use("/api/user", facebookRoutes);
+app.use("/api", facebookRoutes);
 app.use("/api", eventRoutes);
 app.use('/api', uploadRoutes);
 app.use('/api', dealRoutes);
