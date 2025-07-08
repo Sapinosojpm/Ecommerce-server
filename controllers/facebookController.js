@@ -34,40 +34,43 @@ function logFacebookAuthRequest(req, res, next) {
 // Facebook OAuth start
 const facebookAuth = passport.authenticate('facebook', { scope: ['email', 'pages_show_list', 'pages_read_engagement', 'pages_manage_posts'] });
 
-// Facebook OAuth callback with custom error logging
-const facebookCallback = [
-  logFacebookAuthRequest,
-  async (req, res, next) => {
-    passport.authenticate('facebook', async (err, user, info) => {
-      if (err) {
-        console.error("[FB CALLBACK] Passport error:", err);
-        return res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=facebook_login_failed`);
+// Stateless Facebook OAuth callback (no Passport, no session)
+const facebookCallback = async (req, res) => {
+  const { code, state } = req.query;
+  if (!code) return res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=missing_code`);
+
+  try {
+    // 1. Exchange code for access token
+    const tokenRes = await axios.get('https://graph.facebook.com/v18.0/oauth/access_token', {
+      params: {
+        client_id: process.env.FACEBOOK_APP_ID,
+        client_secret: process.env.FACEBOOK_APP_SECRET,
+        redirect_uri: process.env.FACEBOOK_CALLBACK_URL,
+        code,
       }
-      if (!user) {
-        console.error("[FB CALLBACK] No user returned. Info:", info);
-        return res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=facebook_login_failed`);
+    });
+    const fbAccessToken = tokenRes.data.access_token;
+
+    // 2. Fetch user profile
+    const profileRes = await axios.get('https://graph.facebook.com/me', {
+      params: {
+        access_token: fbAccessToken,
+        fields: 'id,name,email'
       }
-      // Enhanced debug logging
-      console.log("[FB CALLBACK] user:", user);
-      const fbAccessToken = user.accessToken;
-      const userId = user.id || user._id || (user.profile && user.profile.id);
-      const token = crypto.randomBytes(32).toString('hex');
-      console.log("[FB CALLBACK] fbAccessToken:", fbAccessToken);
-      console.log("[FB CALLBACK] userId:", userId);
-      console.log("[FB CALLBACK] token:", token);
-      try {
-        const saved = await FbToken.create({ token, fbAccessToken, userId });
-        console.log("[FB CALLBACK] Saved token doc:", saved);
-        const redirectUrl = `${process.env.FRONTEND_URL}/facebook-manager?token=${token}`;
-        console.log(`[FB CALLBACK] Redirecting to: ${redirectUrl}`);
-        res.redirect(redirectUrl);
-      } catch (dbErr) {
-        console.error('[FB CALLBACK] Error saving token to DB:', dbErr);
-        return res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=token_db_error`);
-      }
-    })(req, res, next);
+    });
+    const user = profileRes.data;
+
+    // 3. Generate your own token and save to DB
+    const token = crypto.randomBytes(32).toString('hex');
+    await FbToken.create({ token, fbAccessToken, userId: user.id });
+
+    // 4. Redirect to frontend with your token
+    res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?token=${token}`);
+  } catch (err) {
+    console.error('[FB CALLBACK] Error:', err.response?.data || err.message);
+    res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=facebook_login_failed`);
   }
-];
+};
 
 // Handle failed Facebook login gracefully
 const facebookLoginError = (req, res) => {
