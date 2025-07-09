@@ -60,9 +60,23 @@ const facebookCallback = async (req, res) => {
     });
     const user = profileRes.data;
 
-    // 3. Generate your own token and save to DB
+    // 3. Generate your own token and save to DB (update if user already exists)
     const token = crypto.randomBytes(32).toString('hex');
-    await FbToken.create({ token, fbAccessToken, userId: user.id });
+    try {
+      const existing = await FbToken.findOne({ userId: user.id });
+      if (existing) {
+        existing.token = token;
+        existing.fbAccessToken = fbAccessToken;
+        await existing.save();
+        console.log(`[FB CALLBACK] Updated token for user ${user.id}`);
+      } else {
+        await FbToken.create({ token, fbAccessToken, userId: user.id });
+        console.log(`[FB CALLBACK] Created new token for user ${user.id}`);
+      }
+    } catch (dbErr) {
+      console.error('[FB CALLBACK] Error saving token to DB:', dbErr);
+      return res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=db_save_failed`);
+    }
 
     // 4. Redirect to frontend with your token
     res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?token=${token}`);
