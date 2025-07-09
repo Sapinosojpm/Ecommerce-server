@@ -151,10 +151,20 @@ const postToPage = [requireFBToken, async (req, res) => {
   }
 }];
 
+// Secure endpoint to get fbAccessToken for authenticated user (for debugging only)
+const getFBAccessToken = [requireFBToken, async (req, res) => {
+  try {
+    res.json({ fbAccessToken: req.fbAccessToken });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get fbAccessToken' });
+  }
+}];
+
 export {
   facebookAuth,
   facebookCallback,
   facebookLoginError,
   getPages,
-  postToPage
+  postToPage,
+  getFBAccessToken
 };
