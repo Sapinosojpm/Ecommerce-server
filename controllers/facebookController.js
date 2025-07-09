@@ -7,13 +7,17 @@ import FbToken from '../models/fbTokenModel.js';
 // Middleware to require and validate token, set req.fbAccessToken
 async function requireFBToken(req, res, next) {
   const auth = req.headers.authorization;
+  console.log('[requireFBToken] Authorization header:', auth);
   if (!auth || !auth.startsWith('Bearer ')) {
+    console.log('[requireFBToken] No token provided');
     return res.status(401).json({ error: 'No token provided' });
   }
   const token = auth.split(' ')[1];
   try {
     const fbTokenDoc = await FbToken.findOne({ token });
+    console.log('[requireFBToken] Token lookup result:', fbTokenDoc);
     if (!fbTokenDoc) {
+      console.log('[requireFBToken] Invalid or expired token');
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
     req.fbAccessToken = fbTokenDoc.fbAccessToken;
@@ -37,10 +41,15 @@ const facebookAuth = passport.authenticate('facebook', { scope: ['email', 'pages
 // Stateless Facebook OAuth callback (no Passport, no session)
 const facebookCallback = async (req, res) => {
   const { code, state } = req.query;
-  if (!code) return res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=missing_code`);
+  console.log('[FB CALLBACK] Callback hit. Query:', req.query);
+  if (!code) {
+    console.log('[FB CALLBACK] Missing code in query');
+    return res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?error=missing_code`);
+  }
 
   try {
     // 1. Exchange code for access token
+    console.log('[FB CALLBACK] Exchanging code for access token...');
     const tokenRes = await axios.get('https://graph.facebook.com/v18.0/oauth/access_token', {
       params: {
         client_id: process.env.FACEBOOK_APP_ID,
@@ -50,8 +59,10 @@ const facebookCallback = async (req, res) => {
       }
     });
     const fbAccessToken = tokenRes.data.access_token;
+    console.log('[FB CALLBACK] Got fbAccessToken:', fbAccessToken);
 
     // 2. Fetch user profile
+    console.log('[FB CALLBACK] Fetching user profile...');
     const profileRes = await axios.get('https://graph.facebook.com/me', {
       params: {
         access_token: fbAccessToken,
@@ -59,6 +70,7 @@ const facebookCallback = async (req, res) => {
       }
     });
     const user = profileRes.data;
+    console.log('[FB CALLBACK] Got user profile:', user);
 
     // 3. Generate your own token and save to DB (update if user already exists)
     const token = crypto.randomBytes(32).toString('hex');
@@ -79,6 +91,7 @@ const facebookCallback = async (req, res) => {
     }
 
     // 4. Redirect to frontend with your token
+    console.log('[FB CALLBACK] Redirecting to frontend with token:', token);
     res.redirect(`${process.env.FRONTEND_URL}/facebook-manager?token=${token}`);
   } catch (err) {
     console.error('[FB CALLBACK] Error:', err.response?.data || err.message);
@@ -93,10 +106,13 @@ const facebookLoginError = (req, res) => {
 
 // Get Facebook pages
 const getPages = [requireFBToken, async (req, res) => {
+  console.log('[getPages] Called for user:', req.fbUserId);
   try {
     const response = await axios.get(`https://graph.facebook.com/v18.0/me/accounts?access_token=${req.fbAccessToken}`);
+    console.log('[getPages] Facebook API response:', response.data);
     res.json(response.data);
   } catch (err) {
+    console.error('[getPages] Error:', err.response?.data || err.message);
     res.status(500).json({ error: err.response?.data || err.message });
   }
 }];
@@ -104,6 +120,7 @@ const getPages = [requireFBToken, async (req, res) => {
 // Post to Facebook page
 const postToPage = [requireFBToken, async (req, res) => {
   const { pageId, message, product } = req.body;
+  console.log('[postToPage] Called with:', { pageId, message, product, userId: req.fbUserId });
   try {
     const pageRes = await axios.get(`https://graph.facebook.com/v18.0/${pageId}?fields=access_token&access_token=${req.fbAccessToken}`);
     const pageAccessToken = pageRes.data.access_token;
@@ -126,8 +143,10 @@ const postToPage = [requireFBToken, async (req, res) => {
         access_token: pageAccessToken
       });
     }
+    console.log('[postToPage] Facebook post response:', fbResponse.data);
     res.json(fbResponse.data);
   } catch (err) {
+    console.error('[postToPage] Error:', err.response?.data || err.message);
     res.status(500).json({ error: err.response?.data || err.message });
   }
 }];
