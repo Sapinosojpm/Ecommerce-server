@@ -36,7 +36,20 @@ function logFacebookAuthRequest(req, res, next) {
 }
 
 // Facebook OAuth start
-const facebookAuth = passport.authenticate('facebook', { scope: ['email', 'pages_show_list', 'pages_read_engagement', 'pages_manage_posts'] });
+const facebookAuth = passport.authenticate('facebook', {
+  scope: [
+    'public_profile',
+    'email',
+    'pages_show_list',
+    'pages_read_engagement',
+    'pages_manage_engagement',
+    'pages_manage_metadata',
+    'pages_manage_posts',
+    'pages_read_user_content',
+    'read_insights',
+    'business_management'
+  ]
+});
 
 // Stateless Facebook OAuth callback (no Passport, no session)
 const facebookCallback = async (req, res) => {
