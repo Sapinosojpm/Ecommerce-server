@@ -18,5 +18,9 @@ router.get('/login', facebookLoginError);
 // Facebook API endpoints
 router.get('/facebook/pages', getPages);
 router.post('/facebook/post', postToPage);
+// Catch-all error handler for /facebook/* routes to always return JSON
+router.use('/facebook/*', (req, res) => {
+  res.status(404).json({ error: 'Facebook API endpoint not found' });
+});
 
 export default router;
