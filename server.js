@@ -150,7 +150,7 @@ app.use(express.json());
 app.use(cors({
   origin: [
     'https://ecommerce-frontend-admin-tawny.vercel.app',
-    'https://ecommerce-frontend-six-tau.vercel.app/'
+    'https://ecommerce-frontend-six-tau.vercel.app', // removed trailing slash
     // Add other allowed origins if needed
   ],
   credentials: true
