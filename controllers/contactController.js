@@ -1,13 +1,4 @@
-import cloudinary from 'cloudinary';
-import { v2 as cloudinaryV2 } from 'cloudinary';
 import About from '../models/contactModel.js'; // Ensure the model is correctly imported
-
-// Configure Cloudinary (you should store your credentials in environment variables)
-cloudinaryV2.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
 
 // Controller to get Contact data
 // Controller to get Contact data
@@ -40,12 +31,12 @@ export const updateContactData = async (req, res) => {
       console.log('Received file:', req.file); // Log file data
 
       // Upload the file to Cloudinary and get the URL
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: 'contact_images', // Optional: Define a folder name in Cloudinary
-      });
+      // const result = await cloudinary.uploader.upload(req.file.path, {
+      //   folder: 'contact_images', // Optional: Define a folder name in Cloudinary
+      // });
 
       // Store the Cloudinary URL in the image field
-      updateFields.image = result.secure_url;
+      // updateFields.image = result.secure_url;
     }
 
     // Find the document to update

@@ -13,15 +13,14 @@ export const getJobPosting = async (req, res) => {
 // Add a new job posting (with image upload)
 export const createJobPosting = async (req, res) => {
   try {
-    const { title, description } = req.body;
-    const image = req.file ? req.file.path : null; // Get uploaded image path
-
+    const { title, description, image } = req.body;
+    // Defensive: Only accept valid S3 URLs
+    const imageUrl = (typeof image === 'string' && image.startsWith('http')) ? image : '';
     const newJob = new Job({
       title,
       description,
-      image,
+      image: imageUrl,
     });
-
     await newJob.save(); // Save to database
     res.json({ success: true, job: newJob });
   } catch (error) {

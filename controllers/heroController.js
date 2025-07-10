@@ -1,27 +1,7 @@
 import Hero from '../models/heroModel.js';
-import { v2 as cloudinary } from 'cloudinary';
+// REMOVE: import { v2 as cloudinary } from 'cloudinary';
 import { protect, admin } from '../middleware/adminAuth.js';
 
-// Configure Cloudinary (should be in a separate config file)
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
-// Helper function to upload to Cloudinary
-const uploadToCloudinary = async (file, resourceType = 'image') => {
-  try {
-    const result = await cloudinary.uploader.upload(file.path, {
-      resource_type: resourceType,
-      folder: 'hero_uploads',
-    });
-    return result.secure_url;
-  } catch (error) {
-    console.error('Cloudinary upload error:', error);
-    throw new Error('Failed to upload file to Cloudinary');
-  }
-};
 // Get hero section
 export const getHero = async (req, res) => {
   try {
@@ -45,15 +25,17 @@ export const updateHero = async (req, res) => {
       });
     }
 
-    const { title, subtitle, type } = req.body;
+    const { title, subtitle, type, image, video } = req.body;
     const updateData = { title, subtitle, type };
 
-    // Handle file uploads
-    if (req.files?.image) {
-      updateData.image = await uploadToCloudinary(req.files.image[0]);
+    // Save new S3 URLs if provided
+    if (type === 'image' && image) {
+      updateData.image = image;
+      updateData.video = null;
     }
-    if (req.files?.video) {
-      updateData.video = await uploadToCloudinary(req.files.video[0], 'video');
+    if (type === 'video' && video) {
+      updateData.video = video;
+      updateData.image = null;
     }
 
     // Validate required fields

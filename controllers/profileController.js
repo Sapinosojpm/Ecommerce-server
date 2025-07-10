@@ -1,45 +1,33 @@
 import express from "express";
 import authUser from "../middleware/auth.js"; // Ensure authUser extracts req.userId
 import User from "../models/userModel.js";
-import upload from "../middleware/multer.js";
-import { v2 as cloudinary } from 'cloudinary';
+// REMOVE: import upload from "../middleware/multer.js";
+// REMOVE: import { v2 as cloudinary } from 'cloudinary';
 
 const router = express.Router();
 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_SECRET_KEY,
-});
+// TODO: Handle S3 URL for profile picture
 
+// Remove multer usage for /profile/upload
 router.post(
   "/profile/upload",
   authUser,
-  upload.single("profilePicture"),
   async (req, res) => {
     try {
-      if (!req.file) {
-        return res.status(400).json({ message: "No file uploaded" });
+      // Accept S3 URL from frontend
+      const { profilePicture } = req.body;
+      if (!profilePicture) {
+        return res.status(400).json({ message: "No profile picture URL provided" });
       }
-
-      // Upload to Cloudinary
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: 'profile_pictures',
-        resource_type: 'image',
-      });
-
-      // Update user profile with Cloudinary URL
+      // Update user profile with S3 URL
       const user = await User.findByIdAndUpdate(
         req.userId,
-        { profilePicture: result.secure_url },
+        { profilePicture },
         { new: true }
       );
-
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-
       res.status(200).json({
         profilePictureUrl: user.profilePicture,
         message: "Profile picture uploaded successfully",

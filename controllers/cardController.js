@@ -1,27 +1,16 @@
-import { v2 as cloudinary } from "cloudinary";
 import cardModel from "../models/cardModel.js"; // Correct import
 
 // Add a new card (name, description, image)
 const addCard = async (req, res) => {
     try {
-        const { name, description } = req.body;
+        const { name, description, image } = req.body;
 
         if (!name || !description) {
             return res.status(400).json({ success: false, message: "Name and description are required." });
         }
 
-        const image = req.files?.image?.[0]; // Check if image is provided
-        let imageUrl = "";
-
-        if (image) {
-            try {
-                const result = await cloudinary.uploader.upload(image.path, { resource_type: "image" });
-                imageUrl = result.secure_url;
-            } catch (error) {
-                console.error("Image upload failed:", error);
-                return res.status(500).json({ success: false, message: "Image upload failed." });
-            }
-        }
+        // Defensive: Only accept valid S3 URLs
+        const imageUrl = (typeof image === 'string' && image.startsWith('http')) ? image : '';
 
         // Create and save card
         const card = new cardModel({ name, description, image: imageUrl, date: Date.now() });

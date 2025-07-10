@@ -9,7 +9,6 @@ const introRouter = express.Router();
 introRouter.post(
   '/addIntro',
   adminAuth,  // Keep for authorization
-  upload.fields([{ name: 'image', maxCount: 1 }]),
   addIntro
 );
 

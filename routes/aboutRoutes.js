@@ -5,7 +5,6 @@ import {
   updateAboutData, 
   deleteAboutImage 
 } from '../controllers/aboutController.js';
-import upload from "../middleware/multer.js";
 
 const router = express.Router();
 
@@ -13,7 +12,7 @@ const router = express.Router();
 router.get('/about', getAboutData);
 
 // Route to update About data, including image upload
-router.put('/about', upload.single('image'), updateAboutData);
+router.put('/about', updateAboutData);
 
 // Route to delete About image
 router.delete('/about/image', deleteAboutImage);

@@ -1,44 +1,19 @@
-import { v2 as cloudinary } from "cloudinary";
 import introModel from "../models/introModel.js"; // Correct import
 
 // Add a new intro (name, description, image)
 const addIntro = async (req, res) => {
     try {
-        const { name, description } = req.body;
+        const { name, description, image } = req.body;
 
         if (!name || !description) {
             return res.status(400).json({ success: false, message: "Name and description are required." });
         }
 
-        const image = req.files?.image?.[0];
-        const video = req.files?.video?.[0]; // Capture the video file
-        let imageUrl = "";
-        let videoUrl = "";
-
-        // Upload image if provided
-        if (image) {
-            try {
-                const result = await cloudinary.uploader.upload(image.path, { resource_type: "image" });
-                imageUrl = result.secure_url;
-            } catch (error) {
-                console.error("Image upload failed:", error);
-                return res.status(500).json({ success: false, message: "Image upload failed." });
-            }
-        }
-
-        // Upload video if provided
-        if (video) {
-            try {
-                const result = await cloudinary.uploader.upload(video.path, { resource_type: "video" });
-                videoUrl = result.secure_url;
-            } catch (error) {
-                console.error("Video upload failed:", error);
-                return res.status(500).json({ success: false, message: "Video upload failed." });
-            }
-        }
+        // Defensive: Only accept valid S3 URLs
+        const imageUrl = (typeof image === 'string' && image.startsWith('https://')) ? image : '';
 
         // Create and save intro
-        const intro = new introModel({ name, description, image: imageUrl, video: videoUrl, date: Date.now() });
+        const intro = new introModel({ name, description, image: imageUrl, date: Date.now() });
         await intro.save();
 
         res.status(201).json({ success: true, message: "Intro added successfully.", intro });

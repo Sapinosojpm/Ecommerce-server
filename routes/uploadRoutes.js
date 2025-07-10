@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
-import cloudinary from 'cloudinary';
-import { v2 as cloudinaryV2 } from 'cloudinary'; // Import Cloudinary v2
+import AWS from 'aws-sdk';
+import { v4 as uuidv4 } from 'uuid';
 
 const router = express.Router();
 
@@ -9,21 +9,35 @@ const router = express.Router();
 const storage = multer.memoryStorage(); // Store image in memory
 const upload = multer({ storage });
 
-// Example upload route
-router.post('/upload-image', upload.single('image'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ success: false, message: 'No file uploaded' });
-  }
+// AWS S3 configuration
+const s3 = new AWS.S3({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.AWS_REGION,
+});
 
-  // Upload image to Cloudinary
-  cloudinaryV2.uploader.upload_stream({ resource_type: 'image' }, (error, result) => {
-    if (error) {
-      return res.status(500).json({ success: false, message: 'Error uploading to Cloudinary', error });
+// Endpoint to get a pre-signed URL for image upload
+router.post('/presigned-url', async (req, res) => {
+  try {
+    const { fileType } = req.body;
+    if (!fileType) {
+      return res.status(400).json({ success: false, message: 'Missing fileType' });
     }
-
-    // Return the image URL
-    return res.json({ success: true, imageUrl: result.secure_url });
-  }).end(req.file.buffer); // Use the file buffer for Cloudinary upload
+    const fileExtension = fileType.split('/')[1];
+    const fileName = `${uuidv4()}.${fileExtension}`;
+    const s3Params = {
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: fileName,
+      Expires: 60 * 5, // 5 minutes
+      ContentType: fileType
+    };
+    const uploadUrl = await s3.getSignedUrlPromise('putObject', s3Params);
+    const fileUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
+    res.json({ success: true, uploadUrl, fileUrl });
+  } catch (error) {
+    console.error('Error generating S3 pre-signed URL:', error);
+    res.status(500).json({ success: false, message: 'Failed to generate pre-signed URL', error: error.message });
+  }
 });
 
 export default router;

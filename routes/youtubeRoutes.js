@@ -27,7 +27,7 @@ router.get("/", getYoutubeUrlController);
 // Route to update the YouTube URL
 router.post("/", updateYoutubeUrlController);
 
-// Route to upload a local video
-router.post("/upload-video", upload.single("video"), uploadLocalVideoController);
+// Route to upload a local video (now expects S3 URL in JSON)
+router.post("/upload-video", uploadLocalVideoController);
 
 export default router;

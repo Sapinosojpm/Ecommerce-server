@@ -1,6 +1,5 @@
 import express from 'express';
 import { addMemberCard, listMemberCards, removeMemberCard, singleMemberCard } from "../controllers/memberCardController.js";
-import upload from '../middleware/multer.js';
 import adminAuth from '../middleware/adminAuth.js';
 
 const memberCardRouter = express.Router();
@@ -9,7 +8,6 @@ const memberCardRouter = express.Router();
 memberCardRouter.post(
   '/addMemberCard',
   adminAuth,  // Keep for authorization
-  upload.fields([{ name: 'image', maxCount: 1 }]),
   addMemberCard
 );
 

@@ -28,12 +28,10 @@ export const getPolicies = async (req, res) => {
 // Add a new policy
 export const addPolicy = async (req, res) => {
   try {
-    const { title, description } = req.body;
-    const image = req.file ? `/uploads/policies/${req.file.filename}` : '';
-
-    const newPolicy = new Policy({ title, description, image });
+    const { title, description, image } = req.body;
+    const imageUrl = (typeof image === 'string' && image.startsWith('https://')) ? image : '';
+    const newPolicy = new Policy({ title, description, image: imageUrl });
     await newPolicy.save();
-
     res.status(201).json(newPolicy);
   } catch (error) {
     res.status(500).json({ message: 'Error adding policy', error });
@@ -43,26 +41,15 @@ export const addPolicy = async (req, res) => {
 // Update an existing policy
 export const updatePolicy = async (req, res) => {
   try {
-    const { title, description } = req.body;
+    const { title, description, image } = req.body;
     const { id } = req.params;
     const policy = await Policy.findById(id);
-
     if (!policy) return res.status(404).json({ error: 'Policy not found' });
-
-    // Delete old image if a new image is uploaded
-    if (req.file) {
-      if (policy.image) {
-        const oldImagePath = path.join(process.cwd(), 'Ecommerce-server', policy.image);
-        if (fs.existsSync(oldImagePath)) {
-          fs.unlinkSync(oldImagePath);
-        }
-      }
-      policy.image = `/uploads/policies/${req.file.filename}`;
+    if (typeof image === 'string' && image.startsWith('https://')) {
+      policy.image = image;
     }
-
     policy.title = title || policy.title;
     policy.description = description || policy.description;
-    
     await policy.save();
     res.json(policy);
   } catch (error) {

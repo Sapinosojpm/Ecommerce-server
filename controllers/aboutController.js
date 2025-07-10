@@ -1,6 +1,5 @@
 // controllers/aboutController.js
 import About from '../models/aboutModel.js';
-import { v2 as cloudinary } from 'cloudinary';
 
 
 // Controller to get About data
@@ -32,7 +31,8 @@ export const updateAboutData = async (req, res) => {
           const publicIdWithExtension = urlParts[urlParts.length - 1];
           const publicId = `about-images/${publicIdWithExtension.split('.')[0]}`;
           
-          await cloudinary.uploader.destroy(publicId);
+          // Delete from Cloudinary
+          // await cloudinary.uploader.destroy(publicId); // REMOVED
         } catch (deleteError) {
           console.error('Error deleting old image:', deleteError);
         }
@@ -74,7 +74,7 @@ export const deleteAboutImage = async (req, res) => {
       const publicId = `about-images/${publicIdWithExtension.split('.')[0]}`;
       
       // Delete from Cloudinary
-      await cloudinary.uploader.destroy(publicId);
+      // await cloudinary.uploader.destroy(publicId); // REMOVED
       
       // Remove image from database
       await About.findOneAndUpdate(

@@ -9,7 +9,6 @@ import {
 } from '../controllers/liveChatController.js';
 
 import { protect, admin} from '../middleware/adminAuth.js'; // Middleware to check user and admin
-import upload from '../middleware/multer.js'; // File upload config
 import authUser from '../middleware/adminAuth.js';
 const router = express.Router();
 
@@ -32,7 +31,6 @@ router.get('/admin/active-chats', protect, admin, getActiveChats);
 router.post(
   '/upload/:recipientId',
   protect,
-  upload.single('file'), // Accept a single file with field name 'file'
   uploadAttachment
 );
 

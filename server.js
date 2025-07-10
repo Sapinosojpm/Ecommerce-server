@@ -4,7 +4,6 @@ import 'dotenv/config';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import connectDB from './config/mongodb.js';
-import { connectCloudinary } from './config/cloudinary.js';
 import userRouter from './routes/userRoute.js';
 import productRouter from './routes/productRoute.js';
 import cartRouter from './routes/cartRoute.js';
@@ -123,7 +122,6 @@ const __dirname = dirname(__filename);
 
 // Connect to Database and Cloudinary
 connectDB();
-connectCloudinary();
 EventEmitter.defaultMaxListeners = 30;
 
 // Serve static files from the 'uploads' folder
@@ -151,6 +149,8 @@ app.use(cors({
   origin: [
     'https://ecommerce-frontend-admin-tawny.vercel.app',
     'https://ecommerce-frontend-six-tau.vercel.app', // removed trailing slash
+    'http://localhost:5174',
+    'http://localhost:5173'
     // Add other allowed origins if needed
   ],
   credentials: true
@@ -681,6 +681,7 @@ async function setupChangeStreams() {
 setupChangeStreams().catch(console.error);
 
 // Use routes
+app.use('/api/upload', uploadRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/chat', liveChatRoutes);
 app.use('/api/returns', returnRouter);
@@ -706,7 +707,6 @@ app.use("/api/payment", paymentRoutes);
 app.use("/api", discountRoutes);
 app.use("/api", facebookRoutes);
 app.use("/api", eventRoutes);
-app.use('/api', uploadRoutes);
 app.use('/api', dealRoutes);
 app.use("/api/card", cardRoutes);
 app.use('/api', subscriptionRoutes);

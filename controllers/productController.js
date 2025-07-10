@@ -1,23 +1,24 @@
-import { v2 as cloudinary } from "cloudinary";
 import productModel from "../models/productModel.js";
 import mongoose from 'mongoose';
 
 // Add a new product
 const addProduct = async (req, res) => {
   try {
-    const { 
-      name, 
-      description, 
-      price, 
-      category, 
-      bestseller, 
-      quantity, 
-      discount, 
-      weight, 
-      capital, 
+    const {
+      name,
+      description,
+      price,
+      category,
+      bestseller,
+      quantity,
+      discount,
+      weight,
+      capital,
       additionalCapital,
-      vat, 
-      variations 
+      vat,
+      variations,
+      images, // array of image URLs
+      video   // video URL
     } = req.body;
 
     // Parse additionalCapital if it's a string
@@ -35,15 +36,15 @@ const addProduct = async (req, res) => {
     if (!name || !description || !price || !capital || !vat || !parsedAdditionalCapital || !category || !weight || isNaN(price) || Number(price) <= 0) {
       return res.status(400).json({ success: false, message: "Please provide valid product details." });
     }
-    
+
     if (quantity === undefined || quantity === null || isNaN(quantity) || Number(quantity) < 0) {
       return res.status(400).json({ success: false, message: "Quantity must be a valid non-negative number." });
     }
-    
+
     if (discount && (isNaN(discount) || discount < 0 || discount > 100)) {
       return res.status(400).json({ success: false, message: "Discount must be between 0 and 100." });
     }
-    
+
     if (vat && (isNaN(vat) || vat < 0 || vat > 100)) {
       return res.status(400).json({ success: false, message: "VAT must be between 0 and 100." });
     }
@@ -52,7 +53,7 @@ const addProduct = async (req, res) => {
     if (!parsedAdditionalCapital.type || !['fixed', 'percent'].includes(parsedAdditionalCapital.type)) {
       return res.status(400).json({ success: false, message: "Invalid additional capital type." });
     }
-    
+
     if (parsedAdditionalCapital.value === undefined || parsedAdditionalCapital.value < 0) {
       return res.status(400).json({ success: false, message: "Additional capital value must be a non-negative number." });
     }
@@ -62,26 +63,26 @@ const addProduct = async (req, res) => {
     if (variations) {
       try {
         parsedVariations = JSON.parse(variations);
-        
+
         // Validate each variation
         for (const variation of parsedVariations) {
           if (!variation.name || typeof variation.name !== 'string') {
             return res.status(400).json({ success: false, message: "Each variation must have a valid name." });
           }
-          
+
           if (!Array.isArray(variation.options) || variation.options.length === 0) {
             return res.status(400).json({ success: false, message: "Each variation must have at least one option." });
           }
-          
+
           for (const option of variation.options) {
             if (!option.name || typeof option.name !== 'string') {
               return res.status(400).json({ success: false, message: "Each option must have a valid name." });
             }
-            
+
             if (option.priceAdjustment === undefined || isNaN(option.priceAdjustment)) {
               return res.status(400).json({ success: false, message: "Each option must have a valid price adjustment." });
             }
-            
+
             if (option.quantity === undefined || isNaN(option.quantity) || option.quantity < 0) {
               return res.status(400).json({ success: false, message: "Each option must have a valid non-negative quantity." });
             }
@@ -93,38 +94,9 @@ const addProduct = async (req, res) => {
       }
     }
 
-    // Handle file uploads
-    const image1 = req.files.image1 && req.files.image1[0];
-    const image2 = req.files.image2 && req.files.image2[0];
-    const image3 = req.files.image3 && req.files.image3[0];
-    const image4 = req.files.image4 && req.files.image4[0];
-    const video = req.files.video && req.files.video[0];
-    const images = [image1, image2, image3, image4].filter((image) => image !== undefined);
-
-    // Upload images to Cloudinary
-    let imagesUrl = await Promise.all(
-      images.map(async (item) => {
-        try {
-          const result = await cloudinary.uploader.upload(item.path, { resource_type: "image" });
-          return result.secure_url;
-        } catch (error) {
-          console.error(`Error uploading image: ${item.path}`, error);
-          throw new Error("Image upload failed.");
-        }
-      })
-    );
-
-    // Upload video to Cloudinary
-    let videoUrl = null;
-    if (video) {
-      try {
-        const result = await cloudinary.uploader.upload(video.path, { resource_type: "video" });
-        videoUrl = result.secure_url;
-      } catch (error) {
-        console.error("Error uploading video:", error);
-        throw new Error("Video upload failed.");
-      }
-    }
+    // Parse images and video
+    let imagesUrl = Array.isArray(images) ? images : (typeof images === 'string' ? JSON.parse(images) : []);
+    let videoUrl = video || null;
 
     // Prepare product data
     const productData = {
@@ -165,7 +137,7 @@ const listProduct = async (req, res) => {
   try {
     const { page = 1, limit = 0 } = req.query;
     const query = productModel.find({});
-    
+
     if (Number(limit) > 0) {
       query.skip((page - 1) * limit).limit(Number(limit));
     }
@@ -189,33 +161,33 @@ const listProduct = async (req, res) => {
 const singleProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Validate the ID is a valid MongoDB ObjectId
     if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Invalid product ID format." 
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID format."
       });
     }
 
     const product = await productModel.findById(id);
     if (!product) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Product not found." 
+      return res.status(404).json({
+        success: false,
+        message: "Product not found."
       });
     }
 
     const finalPrice = product.price * ((100 - product.discount) / 100);
-    res.json({ 
-      success: true, 
-      product: { ...product.toObject(), finalPrice } 
+    res.json({
+      success: true,
+      product: { ...product.toObject(), finalPrice }
     });
   } catch (error) {
     console.error("Error fetching product:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message 
+    res.status(500).json({
+      success: false,
+      message: error.message
     });
   }
 };
@@ -482,14 +454,14 @@ const updateVAT = async (req, res) => {
 const bulkUploadProducts = async (req, res) => {
   try {
     const { products } = req.body;
-    
+
     if (!products || !Array.isArray(products)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid product data format' 
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid product data format'
       });
     }
-    
+
     // Prepare products with default values for required fields
     const preparedProducts = products.map(product => ({
       name: product.Name || 'Unnamed Product',
@@ -511,29 +483,29 @@ const bulkUploadProducts = async (req, res) => {
     }));
 
     // Insert with validation disabled temporarily
-    const results = await productModel.insertMany(preparedProducts, { 
+    const results = await productModel.insertMany(preparedProducts, {
       ordered: false,
-      bypassDocumentValidation: true 
+      bypassDocumentValidation: true
     });
-    
+
     const insertedCount = results.length;
-    
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       message: `Successfully imported ${insertedCount} products`,
       insertedCount,
       products: results
     });
-    
+
   } catch (error) {
     console.error('Error in bulk upload:', error);
-    
+
     if (error.writeErrors) {
       const errors = error.writeErrors.map(err => ({
         index: err.index,
         error: err.errmsg
       }));
-      
+
       return res.status(400).json({
         success: false,
         message: `Partial import completed with ${error.result.nInserted} products`,
@@ -541,11 +513,11 @@ const bulkUploadProducts = async (req, res) => {
         errors
       });
     }
-    
-    res.status(500).json({ 
-      success: false, 
+
+    res.status(500).json({
+      success: false,
       message: 'Server error during bulk upload',
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -617,9 +589,9 @@ const updateProductVariationsAdmin = async (req, res) => {
     const { variations } = req.body;
 
     if (!variations) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Variations data is required." 
+      return res.status(400).json({
+        success: false,
+        message: "Variations data is required."
       });
     }
 
@@ -630,9 +602,9 @@ const updateProductVariationsAdmin = async (req, res) => {
     );
 
     if (!product) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Product not found." 
+      return res.status(404).json({
+        success: false,
+        message: "Product not found."
       });
     }
 
@@ -654,64 +626,28 @@ const updateProductVariationsAdmin = async (req, res) => {
 const updateProductImages = async (req, res) => {
   try {
     const { id } = req.params;
-    
+    const { images, video } = req.body; // Accept S3 URLs from frontend
+
     // Get existing product
     const product = await productModel.findById(id);
     if (!product) {
       return res.status(404).json({ success: false, message: "Product not found." });
     }
 
-    // Handle file uploads
-    const image1 = req.files.image1 && req.files.image1[0];
-    const image2 = req.files.image2 && req.files.image2[0];
-    const image3 = req.files.image3 && req.files.image3[0];
-    const image4 = req.files.image4 && req.files.image4[0];
-    const video = req.files.video && req.files.video[0];
-    
-    const newImages = [image1, image2, image3, image4].filter((image) => image !== undefined);
-    
-    // If no new images are uploaded, keep existing images
-    if (newImages.length === 0) {
-      return res.status(200).json({ 
-        success: true, 
-        message: "No new images uploaded.",
-        product 
-      });
-    }
-
-    // Upload new images to Cloudinary
-    const newImageUrls = await Promise.all(
-      newImages.map(async (item) => {
-        try {
-          const result = await cloudinary.uploader.upload(item.path, { resource_type: "image" });
-          return result.secure_url;
-        } catch (error) {
-          console.error(`Error uploading image: ${item.path}`, error);
-          throw new Error("Image upload failed.");
-        }
-      })
-    );
-
-    // Upload new video if provided
-    let videoUrl = product.video;
-    if (video) {
-      try {
-        const result = await cloudinary.uploader.upload(video.path, { resource_type: "video" });
-        videoUrl = result.secure_url;
-      } catch (error) {
-        console.error("Error uploading video:", error);
-        throw new Error("Video upload failed.");
-      }
-    }
+    // Parse images and video, filter out invalid URLs
+    let newImageUrls = Array.isArray(images)
+      ? images.filter(url => typeof url === 'string' && url.startsWith('http'))
+      : (typeof images === 'string' ? JSON.parse(images).filter(url => typeof url === 'string' && url.startsWith('http')) : []);
+    let videoUrl = video || product.video;
 
     // Update product with new images
     const updatedProduct = await productModel.findByIdAndUpdate(
       id,
-      { 
-        $set: { 
+      {
+        $set: {
           image: newImageUrls,
           video: videoUrl
-        } 
+        }
       },
       { new: true }
     );

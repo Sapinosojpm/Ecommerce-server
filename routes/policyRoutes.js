@@ -18,8 +18,8 @@ const upload = multer({ storage });
 
 // ✅ Use `upload` directly in routes
 router.get('/', getPolicies);
-router.post('/', upload.single('image'), addPolicy);
-router.put('/:id', upload.single('image'), updatePolicy);
+router.post('/', addPolicy);
+router.put('/:id', updatePolicy);
 router.delete('/:id', deletePolicy);
 
 export default router;

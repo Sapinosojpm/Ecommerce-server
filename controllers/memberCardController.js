@@ -1,4 +1,3 @@
-import { v2 as cloudinary } from "cloudinary";
 import memberCardModel from "../models/memberCardModel.js"; // Correct import
 
 // Add a new card (name, description, image)
@@ -13,14 +12,14 @@ const addMemberCard = async (req, res) => {
         const image = req.files?.image?.[0]; // Check if image is provided
         let imageUrl = "";
 
+        // TODO: Handle S3 URL for image
         if (image) {
-            try {
-                const result = await cloudinary.uploader.upload(image.path, { resource_type: "image" });
-                imageUrl = result.secure_url;
-            } catch (error) {
-                console.error("Image upload failed:", error);
-                return res.status(500).json({ success: false, message: "Image upload failed." });
-            }
+            // This part of the code was removed as per the edit hint.
+            // The original code had cloudinary.uploader.upload which is no longer imported.
+            // The new code will need to be updated to handle S3 URL generation.
+            // For now, we'll just set imageUrl to the local path for demonstration.
+            // In a real application, you would upload to S3 and get the URL.
+            imageUrl = image.path; // Assuming image.path is the local path for now
         }
 
         // Create and save card

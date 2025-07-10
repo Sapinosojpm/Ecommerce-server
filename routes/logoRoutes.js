@@ -1,29 +1,26 @@
 import express from "express";
-import upload from "../middleware/multer.js"; // Changed to use Cloudinary upload
 import Logo from "../models/logoModel.js";
 
 const router = express.Router();
 
-// Upload or update the logo using Cloudinary
-router.post("/upload", upload.single("logo"), async (req, res) => {
+// TODO: Handle S3 URL for logo
+// Remove multer middleware from logo upload route
+router.post("/upload", async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No file uploaded" });
+    const { imageUrl } = req.body;
+    if (!imageUrl) {
+      return res.status(400).json({ error: "No image URL provided" });
     }
-
-    const filePath = req.file.path; // Cloudinary provides the URL in req.file.path
-
     let logo = await Logo.findOne();
     if (!logo) {
-      logo = new Logo({ imageUrl: filePath });
+      logo = new Logo({ imageUrl });
     } else {
-      logo.imageUrl = filePath;
+      logo.imageUrl = imageUrl;
     }
     await logo.save();
-
     res.json({ 
       message: "Logo updated successfully!", 
-      imageUrl: filePath 
+      imageUrl: logo.imageUrl 
     });
   } catch (error) {
     console.error("Error uploading logo:", error);

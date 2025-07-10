@@ -15,7 +15,7 @@ const router = express.Router();
 
 // Job Postings Routes
 router.get("/api/job-posting", getJobPosting);
-router.post("/api/job-posting", upload.single("image"), createJobPosting); // Image upload
+router.post("/api/job-posting", createJobPosting); // Accepts JSON with S3 URL
 router.delete("/api/job-posting/:jobId", deleteJobPosting);
 router.get("/api/job-posting/:jobId", getJobPostingById);
 
