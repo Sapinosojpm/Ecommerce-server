@@ -4,8 +4,7 @@ import Job from "../models/jobModel.js";
 // Apply for a job
 export const applyForJob = async (req, res) => {
   try {
-    const { jobId, firstName, lastName, address, experience } = req.body;
-    const resume = req.file ? req.file.path : null;
+    const { jobId, firstName, lastName, address, experience, resume } = req.body;
 
     if (!jobId || !firstName || !lastName || !address || !experience || !resume) {
       return res.status(400).json({ success: false, message: "All fields are required." });
@@ -24,7 +23,7 @@ export const applyForJob = async (req, res) => {
       lastName,
       address,
       experience,
-      resume,
+      resume, // S3 URL
     });
 
     await newApplication.save();

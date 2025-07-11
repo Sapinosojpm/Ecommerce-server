@@ -58,6 +58,7 @@ const receiptImageSchema = new mongoose.Schema(
     filename: String,
     path: String,
     mimetype: String,
+    url: String, // Add S3 URL support
   },
   { _id: false }
 );

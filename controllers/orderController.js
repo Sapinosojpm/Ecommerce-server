@@ -633,33 +633,29 @@ const cancelOrder = async (req, res) => {
 
 const uploadReceipt = async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: "No receipt file uploaded" });
+    const { orderData, receiptUrl } = req.body;
+    if (!receiptUrl) {
+      return res.status(400).json({ success: false, message: "No receipt URL provided" });
     }
-
-    // Add validation for orderData
-    if (!req.body.orderData || req.body.orderData === 'undefined') {
+    if (!orderData || orderData === 'undefined') {
       return res.status(400).json({ 
         success: false, 
         message: "Order data is required",
         receivedData: req.body
       });
     }
-
-    let orderData;
+    let parsedOrderData;
     try {
-      orderData = JSON.parse(req.body.orderData);
+      parsedOrderData = typeof orderData === 'string' ? JSON.parse(orderData) : orderData;
     } catch (parseError) {
       return res.status(400).json({
         success: false,
         message: "Invalid order data format",
         error: parseError.message,
-        receivedData: req.body.orderData
+        receivedData: orderData
       });
     }
-
-    // Validate items before creating order
-    if (!orderData.items || orderData.items.length === 0) {
+    if (!parsedOrderData.items || parsedOrderData.items.length === 0) {
       return res.status(400).json({ 
         success: false, 
         message: "Order must contain at least one item" 
@@ -667,7 +663,7 @@ const uploadReceipt = async (req, res) => {
     }
 
     // Check stock availability first
-    for (const item of orderData.items) {
+    for (const item of parsedOrderData.items) {
       const product = await productModel.findById(item.productId);
       if (!product) {
         return res.status(400).json({
@@ -706,19 +702,20 @@ const uploadReceipt = async (req, res) => {
       }
     }
 
-    // Create the order with receipt information
+    // Create the order with receipt S3 URL
     const newOrder = new orderModel({
-      ...orderData,
+      ...parsedOrderData,
       date: new Date(),
       payment: false,
       paymentMethod: "receipt_upload",
       receiptImage: {
-        filename: req.file.filename,
-        path: req.file.path,
-        mimetype: req.file.mimetype
+        url: receiptUrl, // S3 URL
+        filename: null,
+        path: null,
+        mimetype: null,
       },
       orderNumber: generateOrderNumber(),
-      status: 'Order Placed' // Ensure status is set
+      status: 'Order Placed'
     });
 
     // Save the order
@@ -767,7 +764,7 @@ const uploadReceipt = async (req, res) => {
       success: true, 
       message: "Order created successfully. Receipt uploaded and pending verification.",
       orderId: newOrder._id,
-      order: newOrder // Include full order details in response
+      order: newOrder
     });
 
   } catch (error) {

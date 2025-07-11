@@ -1,22 +1,29 @@
-FROM node:18-alpine
-
-# Install Python and build dependencies
-RUN apk add --no-cache python3 py3-pip make g++ linux-headers
+# Install dependencies and build (if needed)
+FROM node:20-alpine
 
 WORKDIR /app
 
+# Install Python and build tools for mediasoup
+RUN apk add --no-cache python3 py3-pip make g++ linux-headers
+
+# Create non-root user and group before chown
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Install dependencies only (use package-lock.json if present)
 COPY package*.json ./
+RUN npm ci --omit=dev
 
-RUN npm install
-
+# Copy app source
 COPY . .
 
-# Create uploads directory
-RUN mkdir -p uploads/videos
+# Create uploads directory and set permissions
+RUN mkdir -p /app/uploads && chown appuser:appgroup /app/uploads
 
-# Set proper permissions
-RUN chmod -R 755 uploads
+# Expose the backend port
+EXPOSE 5000
 
-EXPOSE 4000
+# Use a non-root user for security
+USER appuser
 
-CMD ["node", "server.js"] 
+# Start the server
+CMD ["node", "server.js"]

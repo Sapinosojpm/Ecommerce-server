@@ -1,1 +1,104 @@
-node_modules
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+*.docx
+*.pdf
+
+# Docker files
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# Dependency directories
+node_modules/
+
+# Optional npm cache directory
+.npm
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build outputs
+dist/
+build/
+
+# Temporary folders
+tmp/
+temp/
+
+# Development files
+*.config.js
+vite.config.js
+
+# Deployment configs
+vercel.json
+
+# Source maps
+*.map
+
+# Server specific exclusions
+# Keep uploads directory but exclude large files
+uploads/*.mp4
+uploads/*.avi
+uploads/*.mov
+uploads/*.wmv
+uploads/*.flv
+uploads/*.mkv
+
+# Exclude large media files from uploads
+uploads/videos/
+uploads/*.zip
+uploads/*.rar
+uploads/*.7z
+
+# Exclude API documentation
+.api/
+
+# Exclude test files
+*.test.js
+*.spec.js
+test/
+tests/
+
+# Exclude development scripts
+scripts/
+dev-scripts/ 

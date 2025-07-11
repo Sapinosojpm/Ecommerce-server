@@ -26,23 +26,21 @@ router.get('/profile', authUser, async (req, res) => {
 // POST: Upload profile picture
 router.post('/profile/upload', authUser, async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ message: 'No file uploaded' });
+    const { profilePicture } = req.body;
+    if (!profilePicture) {
+      return res.status(400).json({ message: 'No profile picture URL provided' });
     }
-
     const user = await User.findByIdAndUpdate(
       req.userId, // Use req.userId
-      { profilePicture: req.file.path },
+      { profilePicture },
       { new: true }
     );
-
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-
     return res.status(200).json({
       message: 'Profile picture uploaded successfully',
-      profilePictureUrl: req.file.path
+      profilePictureUrl: profilePicture
     });
   } catch (error) {
     console.error('❌ Error uploading profile picture:', error);

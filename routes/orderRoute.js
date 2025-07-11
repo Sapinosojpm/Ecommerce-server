@@ -30,7 +30,7 @@ orderRouter.post('/status', adminAuth, updateStatus);
 // Payment Features
 orderRouter.post('/place', authUser, placeOrder);
 orderRouter.post('/stripe', authUser, placeOrderStripe);
-orderRouter.post('/upload-receipt', authUser, upload.single('receipt'), uploadReceipt);
+orderRouter.post('/upload-receipt', authUser, uploadReceipt);
 
 // User Features
 orderRouter.post('/userorders', authUser, userOrders);
