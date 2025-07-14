@@ -98,7 +98,7 @@ uploads/*.7z
 *.spec.js
 test/
 tests/
-
+uploads
 # Exclude development scripts
 scripts/
 dev-scripts/ 
