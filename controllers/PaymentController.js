@@ -474,3 +474,140 @@ export const verifyPayment = async (req, res) => {
     });
   }
 };
+
+
+export const retryPaymongoPayment = async (req, res) => {
+  try {
+    const { orderId } = req.body;
+    
+    const order = await orderModel.findById(orderId);
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found"
+      });
+    }
+
+    // Recreate payment intent with the same order details
+   const subtotal = order.items.reduce((sum, item) => {
+  const basePrice = item.finalPrice || item.price || 0;
+  return sum + basePrice * item.quantity;
+}, 0);
+
+const finalAmount = Math.round((subtotal - (order.discountAmount || 0) - (order.voucherAmount || 0) + (order.shippingFee || 0)) * 100) / 100;
+const amountInCentavos = Math.round(finalAmount * 100);
+
+
+
+    // Payment method mapping
+    const paymentMethodMap = {
+      'gcash': 'gcash',
+      'grab_pay': 'grab_pay',
+      'credit/debit card': 'card'
+    };
+
+    const paymentMethod = order.paymentMethod.toLowerCase();
+    const sourceType = paymentMethodMap[paymentMethod];
+
+    if (!sourceType) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid payment method: ${order.paymentMethod}`
+      });
+    }
+
+    // For e-wallets (GCash, GrabPay)
+    if (sourceType !== 'card') {
+      const sourceResponse = await axios.post(
+        "https://api.paymongo.com/v1/sources",
+        {
+          data: {
+            attributes: {
+              amount: amountInCentavos,
+              currency: "PHP",
+              redirect: {
+                success: `${process.env.FRONTEND_URL}/verify-payment?orderId=${order._id}&status=success`,
+                failed: `${process.env.FRONTEND_URL}/verify-payment?orderId=${order._id}&status=failed`
+              },
+              type: sourceType,
+              billing: {
+                name: `${order.address.firstName} ${order.address.lastName}`,
+                email: order.address.email,
+                phone: order.address.phone
+              }
+            }
+          }
+        },
+        {
+          headers: {
+            Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+
+      return res.json({
+        success: true,
+        paymentUrl: sourceResponse.data.data.attributes.redirect.checkout_url,
+        orderId: order._id
+      });
+    }
+
+    // For card payments
+    const checkoutSession = await axios.post(
+      "https://api.paymongo.com/v1/checkout_sessions",
+      {
+        data: {
+          attributes: {
+            billing: {
+              name: `${order.address.firstName} ${order.address.lastName}`,
+              email: order.address.email,
+              phone: order.address.phone
+            },
+            send_email_receipt: true,
+            show_description: true,
+            show_line_items: true,
+            line_items: [
+              {
+                currency: "PHP",
+                amount: amountInCentavos,
+                name: `Order #${order.orderNumber}`,
+                quantity: 1,
+              },
+            ],
+            payment_method_types: ["card"],
+            description: `Payment for Order #${order.orderNumber}`,
+            reference_number: order.orderNumber,
+            redirect: {
+              success: `${process.env.FRONTEND_URL}/verify-payment?orderId=${order._id}&status=success`,
+              failed: `${process.env.FRONTEND_URL}/verify-payment?orderId=${order._id}&status=failed`
+            },
+            metadata: {
+              orderId: order._id.toString()
+            }
+          }
+        }
+      },
+      {
+        headers: {
+          Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    return res.json({
+      success: true,
+      paymentUrl: checkoutSession.data.data.attributes.checkout_url,
+      orderId: order._id
+    });
+
+  } catch (error) {
+    console.error("Retry payment error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to create payment",
+      error: error.response?.data?.errors?.[0]?.detail || error.message
+    });
+  }
+};
