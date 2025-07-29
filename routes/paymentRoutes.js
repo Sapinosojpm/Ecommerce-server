@@ -1,13 +1,13 @@
-import express from 'express';
-import authUser from '../middleware/auth.js'
-import { placeOrderGcash, verifyGCashPayment, payExistingOrderGcash } from '../controllers/PaymentController.js';
+import express from "express";
+import {
+  placeOrderPaymongo,
+  verifyPayment,
+} from "../controllers/PaymentController.js";
+import authUser from "../middleware/auth.js";
 
 const router = express.Router();
 
-// Apply authUser middleware to routes that need authentication
-router.post('/api/payment/gcash', authUser, placeOrderGcash);
-router.post('/api/payment/gcash/verify', authUser, verifyGCashPayment);
-router.get('/api/payment/gcash/verify', verifyGCashPayment); // ✅ Add this route
-router.post('/gcash/pay/:orderId', payExistingOrderGcash);
+router.post("/api/payment/paymongo", authUser, placeOrderPaymongo);
+router.get("/api/payment/verify", verifyPayment);
 
 export default router;

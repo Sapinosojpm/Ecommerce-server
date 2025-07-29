@@ -3,7 +3,18 @@ import NavbarLink from "../models/NavbarModel.js";
 // Get all links
 export const getNavbarLinks = async (req, res) => {
   try {
-    const links = await NavbarLink.find();
+    let links = await NavbarLink.find();
+    if (links.length === 0) {
+      // Insert default links if DB is empty
+      const defaultLinks = [
+        { name: "Home", path: "/" },
+        { name: "Product", path: "/collection" },
+        { name: "About", path: "/about" },
+        { name: "Contact", path: "/contact" }
+      ];
+      await NavbarLink.insertMany(defaultLinks.map(link => ({ ...link, enabled: true })));
+      links = await NavbarLink.find();
+    }
     res.json(links);
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch navbar links" });

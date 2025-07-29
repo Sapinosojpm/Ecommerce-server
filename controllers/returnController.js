@@ -6,9 +6,7 @@ import userModel from "../models/userModel.js";
 import { io } from '../server.js';
 import path from "path";
 import fs from "fs";
-import Stripe from "stripe";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 export const checkReturnEligibility = async (req, res) => {
   try {
@@ -297,22 +295,12 @@ export const processRefund = async (req, res) => {
 
     switch (order.paymentMethod.toLowerCase()) {
       case 'stripe':
-        try {
-          const refund = await stripe.refunds.create({
-            payment_intent: order.stripePaymentId,
-            amount: Math.round(returnRequest.refundAmount * 100)
-          });
-
-          returnRequest.status = 'refunded';
-          returnRequest.statusHistory.push({
-            status: 'refunded',
-            notes: `Refund processed via Stripe (${refund.id})`,
-            changedBy: adminId
-          });
-        } catch (stripeError) {
-          console.error("Stripe refund error:", stripeError);
-          return res.status(500).json({ success: false, message: "Failed to process Stripe refund" });
-        }
+        returnRequest.status = 'refunded';
+        returnRequest.statusHistory.push({
+          status: 'refunded',
+          notes: "Refund processed via Stripe (manual)",
+          changedBy: adminId
+        });
         break;
 
       case 'gcash':

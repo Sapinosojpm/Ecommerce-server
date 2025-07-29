@@ -1,7 +1,6 @@
 import orderModel from "../models/orderModel.js";
 import userModel from "../models/userModel.js";
 import productModel from "../models/productModel.js";
-import Stripe from "stripe";
 import Paymongo from 'paymongo-node';
 import axios from 'axios';
 import Subscriber from "../models/subscriber.js";
@@ -16,11 +15,7 @@ const deliveryCharge = 0;
 
 // Make sure to set STRIPE_SECRET_KEY in your .env file at the project root
 // Example: STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key_here
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error("STRIPE_SECRET_KEY is not set in your environment variables. Please add it to your .env file.");
-}
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const generateOrderNumber = () => {
   return 'ORD-' + Date.now() + '-' + Math.floor(Math.random() * 10000);
 };
@@ -264,100 +259,6 @@ const placeOrder = async (req, res) => {
     session.endSession();
     console.error("❌ Error placing order:", error);
     return res.status(500).json({ success: false, message: "Error placing order." });
-  }
-};
-
-
-
-const placeOrderStripe = async (req, res) => {
-  try {
-    const { userId, items, amount, address, voucherAmount, voucherCode, variationAdjustment, shippingFee = 0 } = req.body;
-    const { origin } = req.headers;
-
-    // Use frontend-calculated finalPrice for each item
-    let updatedItems = [];
-    let subtotal = 0;
-    for (const item of items) {
-      let itemPrice = item.finalPrice;
-      let itemTotal = itemPrice * item.quantity;
-      updatedItems.push({ ...item, price: parseFloat(itemPrice.toFixed(2)) });
-      subtotal += itemTotal;
-    }
-
-    // Stripe-style calculation: subtotal + shippingFee - voucherAmount
-    let adjustedAmount = subtotal + shippingFee - (voucherAmount || 0);
-    console.log('[STRIPE DEBUG] subtotal:', subtotal, 'shippingFee:', shippingFee, 'voucherAmount:', voucherAmount, 'adjustedAmount:', adjustedAmount);
-    let displayAmount = parseFloat(adjustedAmount.toFixed(2));
-    const finalAmount = Math.round(adjustedAmount * 100); // in cents
-
-    const orderData = {
-      userId,
-      items: updatedItems,
-      address,
-      amount: displayAmount,
-      paymentMethod: "Stripe",
-      payment: false,
-      date: Date.now(),
-      voucherAmount: voucherAmount || 0,
-      voucherCode: voucherCode || null,
-      orderNumber: generateOrderNumber(),
-      shippingFee: shippingFee || 0,
-    };
-
-    const newOrder = new orderModel(orderData);
-    await newOrder.save();
-
-    // Build Stripe line_items with correct price (use finalPrice)
-    const line_items = updatedItems.map((item) => {
-      const unitPrice = Math.round((item.price) * 100);
-      return {
-        price_data: {
-          currency: "PHP",
-          product_data: { name: item.name },
-          unit_amount: unitPrice,
-        },
-        quantity: item.quantity,
-      };
-    });
-    if (shippingFee && shippingFee > 0) {
-      line_items.push({
-        price_data: {
-          currency: "PHP",
-          product_data: { name: "Shipping Fee" },
-          unit_amount: Math.round(shippingFee * 100),
-        },
-        quantity: 1,
-      });
-    }
-    // Remove negative line item logic for voucher/discount
-    // Instead, use Stripe coupons for discounts
-    let couponId = null;
-    if (voucherAmount && voucherAmount > 0) {
-      // Create a Stripe coupon for the voucher amount
-      const coupon = await stripe.coupons.create({
-        amount_off: Math.round(voucherAmount * 100),
-        currency: 'PHP',
-        name: voucherCode || 'Voucher Discount',
-        duration: 'once',
-      });
-      couponId = coupon.id;
-    }
-
-    console.log('Order:', newOrder);
-    console.log('Line items:', line_items);
-
-    const session = await stripe.checkout.sessions.create({
-      success_url: `${origin}/verify?success=true&orderId=${newOrder._id}`,
-      cancel_url: `${origin}/verify?success=false&orderId=${newOrder._id}`,
-      line_items,
-      mode: "payment",
-      discounts: couponId ? [{ coupon: couponId }] : [],
-    });
-
-    res.json({ success: true, session_url: session.url });
-  } catch (error) {
-    console.error("Stripe payment error:", error);
-    res.json({ success: false, message: error.message });
   }
 };
 
@@ -1116,92 +1017,11 @@ export const scanQrAndUpdateStatus = async (req, res) => {
   }
 };
 
-export const createStripeCheckoutSession = async (req, res) => {
-  console.log('createStripeCheckoutSession called', req.params, req.userId);
-  try {
-    const { orderId } = req.params;
-    const userId = req.userId;
-
-    const order = await orderModel.findOne({ _id: orderId, userId, payment: false });
-    if (!order) {
-      return res.status(404).json({ success: false, message: "Order not found or already paid" });
-    }
-
-    // Build line items (include variationAdjustment and shipping fee)
-    const line_items = order.items.map((item) => ({
-      price_data: {
-        currency: "PHP",
-        product_data: { name: item.name },
-        unit_amount: Math.round((item.price || 0) * 100),
-      },
-      quantity: item.quantity,
-    }));
-    if (order.shippingFee && order.shippingFee > 0) {
-      line_items.push({
-        price_data: {
-          currency: "PHP",
-          product_data: { name: "Shipping Fee" },
-          unit_amount: Math.round(order.shippingFee * 100),
-        },
-        quantity: 1,
-      });
-    }
-
-    console.log('Order:', order);
-    console.log('Line items:', line_items);
-    // Debug: Print FRONTEND_URL and URLs being sent to Stripe
-    console.log('FRONTEND_URL:', process.env.FRONTEND_URL);
-    const successUrl = `${process.env.FRONTEND_URL}/orders?paymentSuccess=true&orderId=${order._id}`;
-    const cancelUrl = `${process.env.FRONTEND_URL}/orders?paymentFailed=true&orderId=${order._id}`;
-    console.log('Success URL:', successUrl);
-    console.log('Cancel URL:', cancelUrl);
-
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ["card"],
-      line_items,
-      mode: "payment",
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      customer_email: order.address?.email,
-      metadata: { orderId: order._id.toString() },
-    });
-
-    res.json({ success: true, session_url: session.url });
-  } catch (error) {
-    console.error("Stripe Checkout error:", error);
-    res.status(500).json({ success: false, message: "Failed to create Stripe Checkout session" });
-  }
-};
-
-export const verifyStripePayment = async (req, res) => {
-  try {
-    const { orderId } = req.body;
-    if (!orderId) {
-      return res.status(400).json({ success: false, message: "Order ID is required." });
-    }
-    const order = await orderModel.findById(orderId);
-    if (!order) {
-      return res.status(404).json({ success: false, message: "Order not found." });
-    }
-    if (order.payment) {
-      return res.json({ success: true, message: "Order already marked as paid." });
-    }
-    order.payment = true;
-    order.status = "Order Placed";
-    await order.save();
-    return res.json({ success: true, message: "Order marked as paid." });
-  } catch (error) {
-    console.error("Error verifying Stripe payment:", error);
-    return res.status(500).json({ success: false, message: "Failed to verify payment." });
-  }
-};
-
 export {
   uploadReceipt,
   verifyStripe,
   placeOrder,
   cancelOrder,
-  placeOrderStripe,
   allOrders,
   userOrders,
   updateStatus,

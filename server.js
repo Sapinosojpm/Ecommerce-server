@@ -96,7 +96,8 @@ const allowedOrigins = [
   "http://localhost:5174",
   "https://ecommerce-frontend-six-tau.vercel.app",
   "https://ecommerce-frontend-admin-tawny.vercel.app",
-  "https://ecommerce-frontend-git-main-john-paul-milles-projects.vercel.app"
+  "https://ecommerce-frontend-git-main-john-paul-milles-projects.vercel.app",
+  "https://9344ce6a9d40.ngrok-free.app"
 ];
 
 // Create Mediasoup worker and router
@@ -150,7 +151,8 @@ app.use(cors({
     'https://ecommerce-frontend-admin-tawny.vercel.app',
     'https://ecommerce-frontend-six-tau.vercel.app', // removed trailing slash
     'http://localhost:5174',
-    'http://localhost:5173'
+    'http://localhost:5173',
+    "https://9344ce6a9d40.ngrok-free.app"
     // Add other allowed origins if needed
   ],
   credentials: true

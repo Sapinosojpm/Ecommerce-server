@@ -4,7 +4,7 @@ import authUser from "../middleware/auth.js";
 
 const router = express.Router();
 
-router.post("/track", authUser, trackPageView); // ✅ Apply authUser first
+router.post("/track", trackPageView); // Allow guests and logged-in users
 router.get("/views", authUser, getPageViews);
 
 export default router;
