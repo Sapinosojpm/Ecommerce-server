@@ -99,32 +99,40 @@ export const handlePaymongoWebhook = async (req, res) => {
 };
 const verifyWebhookSignature = (payload, signature) => {
   try {
+    // Fetch the webhook secret from environment variable
     const webhookSecret = process.env.PAYMONGO_WEBHOOK_SECRET;
-    console.log("Webhook Secret:", webhookSecret);  // Log the webhook secret
+    console.log("[Webhook] Secret from .env:", webhookSecret); // Log the webhook secret
 
     if (!webhookSecret) {
       console.error('[Webhook] Missing webhook secret');
       return false;
     }
 
-    console.log("[Webhook] Received Signature:", signature);  // Log received signature
+    // Log the received signature
+    console.log("[Webhook] Received Signature:", signature);
 
-    // Create HMAC hash from payload
+    // Log the entire payload to check if it's received as expected
+    console.log("[Webhook] Raw Payload:", JSON.stringify(payload, null, 2));
+
+    // Create HMAC hash from payload (using secret)
     const hmac = crypto.createHmac('sha256', webhookSecret);
     const digest = hmac.update(JSON.stringify(payload)).digest('hex');
 
-    console.log("[Webhook] Calculated Digest:", digest);  // Log calculated digest
+    // Log the generated digest (hash) to compare it with the signature
+    console.log("[Webhook] Calculated Digest:", digest);
 
     // Check if the received signature matches the calculated digest
     const isSignatureValid = signature === digest;
-    console.log("[Webhook] Is signature valid?", isSignatureValid);  // Log if the signature is valid
+    console.log("[Webhook] Is Signature Valid?", isSignatureValid); // Log whether the signature is valid or not
 
+    // Return the result of the signature comparison
     return isSignatureValid;
   } catch (error) {
     console.error('[Webhook] Signature verification failed:', error);
     return false;
   }
 };
+
 
 export const placeOrderPaymongo = async (req, res) => {
   try {
@@ -315,8 +323,9 @@ export const placeOrderPaymongo = async (req, res) => {
 // Enhanced verifyPayment with polling mechanism
 export const verifyPayment = async (req, res) => {
   try {
-    const { orderId, payment_intent_id, status } = req.query;
+    const { orderId, payment_intent_id, source_id, status } = req.query;
     
+    // Validate required parameters
     if (!orderId) {
       return res.status(400).json({
         success: false,
@@ -324,6 +333,7 @@ export const verifyPayment = async (req, res) => {
       });
     }
 
+    // Find the existing order
     const existingOrder = await orderModel.findById(orderId);
     if (!existingOrder) {
       return res.status(404).json({
@@ -332,13 +342,20 @@ export const verifyPayment = async (req, res) => {
       });
     }
 
-    // If status is failed from redirect
+    // Handle failed payments
     if (status === 'failed') {
       await orderModel.findByIdAndUpdate(orderId, {
         payment: false,
         paymentStatus: "failed",
-        status: "Payment Failed"
+        status: "Payment Failed",
+        $push: {
+          statusHistory: {
+            status: "Payment Failed",
+            notes: "User was redirected back from payment gateway with failed status"
+          }
+        }
       });
+      
       return res.json({
         success: false,
         message: "Payment failed",
@@ -346,9 +363,192 @@ export const verifyPayment = async (req, res) => {
       });
     }
 
-    // If status is success but no payment_intent_id
-    if (status === 'success' && !payment_intent_id) {
-      // Check if order is already marked as paid (webhook might have processed it)
+    // Handle successful payments from GCash/GrabPay (source_id exists)
+    if (source_id) {
+      try {
+        // Verify the source payment status
+        const sourceResponse = await axios.get(
+          `https://api.paymongo.com/v1/sources/${source_id}`,
+          {
+            headers: {
+              Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
+            },
+          }
+        );
+
+        const sourceStatus = sourceResponse.data.data.attributes.status;
+
+        if (sourceStatus === 'consumed' || sourceStatus === 'paid') {
+          // Check if payment was already processed by webhook
+          const updatedOrder = await orderModel.findByIdAndUpdate(
+            orderId,
+            {
+              payment: true,
+              paymentStatus: "paid",
+              status: "Order Placed",
+              $push: {
+                statusHistory: {
+                  status: "Payment Verified",
+                  notes: `Payment verified via source (${sourceStatus})`
+                }
+              }
+            },
+            { new: true }
+          );
+
+          // Deduct stock
+          for (const item of updatedOrder.items) {
+            await productModel.findByIdAndUpdate(item.productId, {
+              $inc: { stock: -item.quantity }
+            });
+          }
+
+          return res.json({
+            success: true,
+            message: "Payment successful",
+            redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentSuccess=true&orderId=${orderId}`
+          });
+        } else if (sourceStatus === 'pending') {
+          // Payment still processing
+          return res.json({
+            success: false,
+            message: "Payment still processing",
+            redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentPending=true&orderId=${orderId}`
+          });
+        } else {
+          // Payment failed
+          await orderModel.findByIdAndUpdate(orderId, {
+            payment: false,
+            paymentStatus: "failed",
+            status: "Payment Failed",
+            $push: {
+              statusHistory: {
+                status: "Payment Failed",
+                notes: `Source status: ${sourceStatus}`
+              }
+            }
+          });
+          return res.json({
+            success: false,
+            message: "Payment failed",
+            redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentFailed=true&orderId=${orderId}`
+          });
+        }
+      } catch (sourceError) {
+        console.error("Source verification error:", sourceError);
+        // Fall through to general verification
+      }
+    }
+
+    // Handle card payments (payment_intent_id exists)
+    if (payment_intent_id) {
+      try {
+        let paymentIntentResponse;
+        let paymentStatus;
+        let attempts = 0;
+        const maxAttempts = 5;
+        
+        // Poll payment intent status
+        do {
+          paymentIntentResponse = await axios.get(
+            `https://api.paymongo.com/v1/payment_intents/${payment_intent_id}`,
+            {
+              headers: {
+                Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
+              },
+            }
+          );
+          
+          paymentStatus = paymentIntentResponse.data.data.attributes.status;
+          if (paymentStatus === "succeeded") break;
+          attempts++;
+          await delay(1500);
+        } while (attempts < maxAttempts);
+
+        // Get payment method details
+        let paymentMethod = "Card";
+        if (paymentIntentResponse.data.data.attributes.payment_method) {
+          const pmResponse = await axios.get(
+            `https://api.paymongo.com/v1/payment_methods/${paymentIntentResponse.data.data.attributes.payment_method}`,
+            {
+              headers: {
+                Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
+              },
+            }
+          );
+          paymentMethod = pmResponse.data.data.attributes.type;
+        }
+
+        // Handle payment status
+        switch (paymentStatus) {
+          case "succeeded":
+            // Verify the payment object
+            const payments = await axios.get(
+              `https://api.paymongo.com/v1/payments?payment_intent_id=${payment_intent_id}`,
+              {
+                headers: {
+                  Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
+                },
+              }
+            );
+
+            if (payments.data.data.length > 0 && payments.data.data[0].attributes.status === "paid") {
+              const order = await orderModel.findByIdAndUpdate(orderId, {
+                payment: true,
+                paymentStatus: "paid",
+                status: "Order Placed",
+                paymentMethod: paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1),
+                $push: {
+                  statusHistory: {
+                    status: "Payment Verified",
+                    notes: "Payment verified via payment intent"
+                  }
+                }
+              }, { new: true });
+
+              // Deduct stock
+              for (const item of order.items) {
+                await productModel.findByIdAndUpdate(item.productId, {
+                  $inc: { stock: -item.quantity }
+                });
+              }
+
+              return res.json({
+                success: true,
+                message: "Payment successful",
+                redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentSuccess=true&orderId=${orderId}`
+              });
+            }
+            break;
+          
+          default:
+            await orderModel.findByIdAndUpdate(orderId, {
+              payment: false,
+              paymentStatus: "failed",
+              status: "Payment Failed",
+              paymentMethod: paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1),
+              $push: {
+                statusHistory: {
+                  status: "Payment Failed",
+                  notes: `Payment intent status: ${paymentStatus}`
+                }
+              }
+            });
+            return res.json({
+              success: false,
+              message: "Payment failed or was cancelled",
+              redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentFailed=true&orderId=${orderId}`
+            });
+        }
+      } catch (cardError) {
+        console.error("Card payment verification error:", cardError);
+        // Fall through to general verification
+      }
+    }
+
+    // General verification flow (for cases where webhook might have processed it)
+    if (status === 'success') {
+      // Check if order is already marked as paid
       if (existingOrder.payment) {
         return res.json({
           success: true,
@@ -368,6 +568,7 @@ export const verifyPayment = async (req, res) => {
         });
       }
       
+      // If still pending after waiting
       return res.json({
         success: false,
         message: "Payment verification in progress",
@@ -375,99 +576,13 @@ export const verifyPayment = async (req, res) => {
       });
     }
 
-    // If we have a payment_intent_id, verify it
-    if (payment_intent_id) {
-      let paymentIntentResponse;
-      let paymentStatus;
-      let attempts = 0;
-      const maxAttempts = 5;
-      
-      do {
-        paymentIntentResponse = await axios.get(
-          `https://api.paymongo.com/v1/payment_intents/${payment_intent_id}`,
-          {
-            headers: {
-              Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
-            },
-          }
-        );
-        
-        paymentStatus = paymentIntentResponse.data.data.attributes.status;
-        if (paymentStatus === "succeeded") break;
-        attempts++;
-        await delay(1500);
-      } while (attempts < maxAttempts);
-
-      // Get payment method details if available
-      let paymentMethod = "Card";
-      if (paymentIntentResponse.data.data.attributes.payment_method) {
-        const pmResponse = await axios.get(
-          `https://api.paymongo.com/v1/payment_methods/${paymentIntentResponse.data.data.attributes.payment_method}`,
-          {
-            headers: {
-              Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
-            },
-          }
-        );
-        paymentMethod = pmResponse.data.data.attributes.type;
-      }
-
-      let order;
-      switch (paymentStatus) {
-        case "succeeded":
-          // Verify the payment object
-          const payments = await axios.get(
-            `https://api.paymongo.com/v1/payments?payment_intent_id=${payment_intent_id}`,
-            {
-              headers: {
-                Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
-              },
-            }
-          );
-
-          if (payments.data.data.length > 0 && payments.data.data[0].attributes.status === "paid") {
-            order = await orderModel.findByIdAndUpdate(orderId, {
-              payment: true,
-              paymentStatus: "paid",
-              status: "Order Placed", // Changed to match old working status
-              paymentMethod: paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1)
-            }, { new: true });
-
-            // Deduct stock
-            for (const item of order.items) {
-              await productModel.findByIdAndUpdate(item.productId, {
-                $inc: { stock: -item.quantity }
-              });
-            }
-
-            return res.json({
-              success: true,
-              message: "Payment successful",
-              redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentSuccess=true&orderId=${orderId}`
-            });
-          }
-          break;
-        
-        default:
-          order = await orderModel.findByIdAndUpdate(orderId, {
-            payment: false,
-            paymentStatus: "failed",
-            status: "Payment Failed",
-            paymentMethod: paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1)
-          }, { new: true });
-          return res.json({
-            success: false,
-            message: "Payment failed or was cancelled",
-            redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentFailed=true&orderId=${orderId}`
-          });
-      }
-    }
-
+    // Default case - verification in progress
     return res.json({
       success: false,
       message: "Payment verification in progress",
       redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentPending=true&orderId=${orderId}`
     });
+
   } catch (error) {
     console.error("Payment verification error:", error);
     if (orderId) {
@@ -475,6 +590,12 @@ export const verifyPayment = async (req, res) => {
         payment: false,
         paymentStatus: "error",
         status: "Payment Error",
+        $push: {
+          statusHistory: {
+            status: "Verification Error",
+            notes: error.message.substring(0, 200)
+          }
+        }
       });
     }
     return res.status(500).json({
@@ -484,6 +605,7 @@ export const verifyPayment = async (req, res) => {
     });
   }
 };
+
 
 
 export const retryPaymongoPayment = async (req, res) => {
