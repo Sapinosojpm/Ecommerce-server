@@ -7,7 +7,6 @@ dotenv.config();
 
 // Utility function for delay
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-
 // Enhanced webhook handler with better logging and status handling
 export const handlePaymongoWebhook = async (req, res) => {
   console.log('[Webhook] Raw body:', req.body);
@@ -98,18 +97,29 @@ export const handlePaymongoWebhook = async (req, res) => {
     res.status(500).json({ error: 'Webhook processing failed' });
   }
 };
-
 const verifyWebhookSignature = (payload, signature) => {
   try {
     const webhookSecret = process.env.PAYMONGO_WEBHOOK_SECRET;
+    console.log("Webhook Secret:", webhookSecret);  // Log the webhook secret
+
     if (!webhookSecret) {
       console.error('[Webhook] Missing webhook secret');
       return false;
     }
 
+    console.log("[Webhook] Received Signature:", signature);  // Log received signature
+
+    // Create HMAC hash from payload
     const hmac = crypto.createHmac('sha256', webhookSecret);
     const digest = hmac.update(JSON.stringify(payload)).digest('hex');
-    return signature === digest;
+
+    console.log("[Webhook] Calculated Digest:", digest);  // Log calculated digest
+
+    // Check if the received signature matches the calculated digest
+    const isSignatureValid = signature === digest;
+    console.log("[Webhook] Is signature valid?", isSignatureValid);  // Log if the signature is valid
+
+    return isSignatureValid;
   } catch (error) {
     console.error('[Webhook] Signature verification failed:', error);
     return false;
