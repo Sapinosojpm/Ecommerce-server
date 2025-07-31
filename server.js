@@ -38,7 +38,7 @@ import faqRoutes from "./routes/faq.js";
 import adminRouter from './routes/userRoute.js';
 import facebookRoutes from './routes/facebookRoutes.js';
 import discountRoutes from "./routes/discountRoutes.js";
-import paymentRoutes from "./routes/paymentRoutes.js";
+import paymentRoutes, { handlePaymongoWebhook } from "./routes/paymentRoutes.js";
 import subscriberRoutes from './routes/subscriberRoutes.js';
 import logoRoutes from "./routes/logoRoutes.js";
 import policyRoutes from './routes/policyRoutes.js';
@@ -706,6 +706,7 @@ app.use("/api/logo", logoRoutes);
 app.use("/api/youtube", youtubeRoutes);
 app.use('/api/subscribers', subscriberRoutes);
 app.use("/api/payment", paymentRoutes);
+console.log("✅ Payment routes loaded at /api/payment");
 app.use("/api", discountRoutes);
 app.use("/api", facebookRoutes);
 app.use("/api", eventRoutes);
@@ -731,8 +732,13 @@ app.use('/api/youtube-url', youtubeRoutes);
 app.use("/api/admin/discounts", adminDiscountRoutes);
 app.use("/api/faqs", faqRoutes);
 app.use('/api', adminRouter);
-app.use(paymentRoutes);
-app.use("/api/paymongo/webhook", express.json());
+// Test route to verify server is working
+app.get("/api/test", (req, res) => {
+  res.json({ message: "Server is working!", timestamp: new Date().toISOString() });
+});
+
+// Paymongo webhook route (no auth required)
+app.post("/api/paymongo/webhook", express.json(), handlePaymongoWebhook);
 app.use("/api/voucher-amounts", VoucherAmountRoutes);
 app.use("/api", AIChatRouter)
 

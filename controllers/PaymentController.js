@@ -7,88 +7,102 @@ dotenv.config();
 
 // Utility function for delay
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-// Enhanced webhook handler with better logging and status handling
+
+// Webhook Testing Endpoint (for development only)
+export const testWebhook = async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ success: false, message: "Test webhook not available in production" });
+  }
+
+  const { orderId, eventType = 'payment.paid', paymentMethod = 'gcash' } = req.body;
+
+  if (!orderId) {
+    return res.status(400).json({ success: false, message: "orderId is required" });
+  }
+
+  const testEvent = {
+    data: {
+      attributes: {
+        type: eventType,
+        data: {
+          attributes: {
+            amount: 10000, // 100.00 PHP
+            currency: 'PHP',
+            status: eventType === 'payment.paid' ? 'paid' : 'failed',
+            metadata: { orderId },
+            payment_method_type: paymentMethod,
+            source: {
+              type: paymentMethod
+            },
+            billing: {
+              name: "Test User",
+              email: "test@example.com"
+            }
+          }
+        }
+      }
+    }
+  };
+
+  try {
+    // Process the test event, handlePaymongoWebhook sends the response itself
+    await handlePaymongoWebhook({
+      body: testEvent,
+      headers: {
+        'paymongo-signature': 'test_signature_skip_validation'
+      }
+    }, res);
+
+    // DO NOT send response here again to avoid ERR_HTTP_HEADERS_SENT
+
+  } catch (error) {
+    // If handlePaymongoWebhook throws, send error response here
+    res.status(500).json({
+      success: false,
+      message: "Test webhook processing failed",
+      error: error.message
+    });
+  }
+};
+
+
+// Enhanced webhook handler
 export const handlePaymongoWebhook = async (req, res) => {
-  console.log('[Webhook] Raw body:', req.body);
-  console.log('[Webhook] Headers:', req.headers);
+  console.log('[Webhook] Received event');
   
   try {
-    const signature = req.headers['paymongo-signature'];
-    console.log('[Webhook] Received signature:', signature);
-    
-    if (!verifyWebhookSignature(req.body, signature)) {
-      console.error('[Webhook] Invalid signature');
-      return res.status(400).send('Invalid signature');
+    // Skip verification in development for testing
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('⚠️ Skipping signature verification in development mode');
+    } else {
+      const signature = req.headers['paymongo-signature'];
+      if (!verifyWebhookSignature(req.body, signature)) {
+        console.error('[Webhook] Invalid signature');
+        return res.status(400).send('Invalid signature');
+      }
     }
 
     const event = req.body;
-    console.log('[Webhook] Full event data:', JSON.stringify(event, null, 2));
+    console.log('[Webhook] Processing event type:', event.type);
 
-    if (event.type === 'payment.paid' || event.type === 'checkout_session.paid') {
-      const attributes = event.data.attributes;
-      const metadata = attributes.metadata || {};
-      const orderId = metadata.orderId;
-
-      if (!orderId) {
-        console.error('[Webhook] Missing orderId in metadata');
-        return res.status(400).send('Missing orderId');
-      }
-
-      console.log('[Webhook] Processing successful payment for order:', orderId);
-
-      // Update order payment status first
-      const updatedOrder = await orderModel.findByIdAndUpdate(
-        orderId,
-        {
-          payment: true,
-          paymentStatus: "paid",
-          status: "Order Placed", // Changed to match old working status
-          paymentMethod: attributes.payment_method_type || "Card" // Add payment method
-        },
-        { new: true }
-      );
-
-      if (updatedOrder) {
-        try {
-          // Enhanced stock deduction with variation support
-          for (const item of updatedOrder.items) {
-            const product = await productModel.findById(item.productId);
-            if (!product) continue;
-
-            if (item.variationId) {
-              // Handle variation stock
-              for (let variation of product.variations) {
-                const option = variation.options.find(
-                  opt => opt._id.toString() === item.variationId.toString()
-                );
-                if (option) {
-                  option.quantity -= item.quantity;
-                  await product.save();
-                  console.log(`[Webhook] Stock updated for variation ${variation.name} - ${option.name}`);
-                  break;
-                }
-              }
-            } else {
-              // Handle base product stock
-              if (product.variations.length > 0 && product.variations[0].options.length > 0) {
-                product.variations[0].options[0].quantity -= item.quantity;
-                await product.save();
-                console.log('[Webhook] Base stock updated');
-              }
-            }
-          }
-          console.log('[Webhook] Stock deducted successfully');
-        } catch (stockError) {
-          console.error('[Webhook] Error deducting stock:', stockError);
-          // Continue even if stock deduction fails
-        }
-
-        console.log('[Webhook] Order updated successfully');
-      } else {
-        console.warn('[Webhook] Order not found for ID:', orderId);
-      }
-    } else {
-      console.log('[Webhook] Ignored event type:', event.type);
+    // Handle different event types
+    switch (event.type) {
+      case 'payment.paid':
+      case 'checkout_session.paid':
+        await handleSuccessfulPayment(event);
+        break;
+      
+      case 'payment.failed':
+        await handleFailedPayment(event);
+        break;
+      
+      case 'source.chargeable':
+        console.log('[Webhook] Source chargeable - creating payment');
+        await handleSourceChargeable(event);
+        break;
+      
+      default:
+        console.log('[Webhook] Unhandled event type:', event.type);
     }
 
     res.json({ received: true });
@@ -97,43 +111,177 @@ export const handlePaymongoWebhook = async (req, res) => {
     res.status(500).json({ error: 'Webhook processing failed' });
   }
 };
-const verifyWebhookSignature = (payload, signature) => {
-  try {
-    // Fetch the webhook secret from environment variable
-    const webhookSecret = process.env.PAYMONGO_WEBHOOK_SECRET;
-    console.log("[Webhook] Secret from .env:", webhookSecret); // Log the webhook secret
 
-    if (!webhookSecret) {
-      console.error('[Webhook] Missing webhook secret');
-      return false;
+// Handle successful payments
+const handleSuccessfulPayment = async (event) => {
+  const attributes = event.data.attributes;
+  const metadata = attributes.metadata || {};
+  const orderId = metadata.orderId;
+
+  if (!orderId) {
+    console.error('[Webhook] Missing orderId in metadata');
+    throw new Error('Missing orderId');
+  }
+
+  console.log('[Webhook] Processing payment for order:', orderId);
+
+  const paymentMethod = attributes.payment_method_type || 
+                       (attributes.source?.type === 'gcash' ? 'GCash' : 
+                        attributes.source?.type === 'grab_pay' ? 'GrabPay' : 'Card');
+
+  const updateData = {
+    payment: true,
+    paymentStatus: "paid",
+    status: "Order Placed",
+    paymentMethod: paymentMethod,
+    $push: {
+      statusHistory: {
+        status: "Payment Completed",
+        notes: `Processed via ${event.type} webhook`,
+        date: new Date()
+      }
     }
+  };
 
-    // Log the received signature
-    console.log("[Webhook] Received Signature:", signature);
+  const updatedOrder = await orderModel.findByIdAndUpdate(
+    orderId,
+    updateData,
+    { new: true }
+  );
 
-    // Log the entire payload to check if it's received as expected
-    console.log("[Webhook] Raw Payload:", JSON.stringify(payload, null, 2));
+  if (!updatedOrder) {
+    console.warn('[Webhook] Order not found for ID:', orderId);
+    return;
+  }
 
-    // Create HMAC hash from payload (using secret)
-    const hmac = crypto.createHmac('sha256', webhookSecret);
-    const digest = hmac.update(JSON.stringify(payload)).digest('hex');
+  // Deduct stock
+  try {
+    for (const item of updatedOrder.items) {
+      const product = await productModel.findById(item.productId);
+      if (!product) continue;
 
-    // Log the generated digest (hash) to compare it with the signature
-    console.log("[Webhook] Calculated Digest:", digest);
-
-    // Check if the received signature matches the calculated digest
-    const isSignatureValid = signature === digest;
-    console.log("[Webhook] Is Signature Valid?", isSignatureValid); // Log whether the signature is valid or not
-
-    // Return the result of the signature comparison
-    return isSignatureValid;
-  } catch (error) {
-    console.error('[Webhook] Signature verification failed:', error);
-    return false;
+      // Handle variations if they exist
+      if (item.variationId && product.variations?.length > 0) {
+        for (const variation of product.variations) {
+          const option = variation.options?.find(
+            opt => opt._id.toString() === item.variationId.toString()
+          );
+          if (option) {
+            option.quantity = Math.max(0, option.quantity - item.quantity);
+            await product.save();
+            break;
+          }
+        }
+      } else {
+        // Default stock handling
+        product.stock = Math.max(0, product.stock - item.quantity);
+        await product.save();
+      }
+    }
+    console.log('[Webhook] Stock updated successfully');
+  } catch (stockError) {
+    console.error('[Webhook] Error updating stock:', stockError);
   }
 };
 
+// Handle source chargeable event
+const handleSourceChargeable = async (event) => {
+  try {
+    const sourceData = event.data.attributes;
+    const metadata = sourceData.metadata || {};
+    const orderId = metadata.orderId;
+    const sourceId = event.data.id;
 
+    if (!orderId) {
+      console.error('[Webhook] Missing orderId in source metadata');
+      return;
+    }
+
+    console.log('[Webhook] Creating payment from chargeable source:', sourceId);
+
+    // Create payment from the chargeable source
+    const paymentResponse = await axios.post(
+      'https://api.paymongo.com/v1/payments',
+      {
+        data: {
+          attributes: {
+            amount: sourceData.amount,
+            currency: sourceData.currency,
+            source: {
+              id: sourceId,
+              type: 'source'
+            },
+            description: `Payment for Order #${metadata.orderNumber || orderId}`
+          }
+        }
+      },
+      {
+        headers: {
+          Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    console.log('[Webhook] Payment created from source:', paymentResponse.data.data.id);
+    console.log('[Webhook] Payment status:', paymentResponse.data.data.attributes.status);
+
+    // If payment is successful, update the order
+    if (paymentResponse.data.data.attributes.status === 'paid') {
+      await handleSuccessfulPayment({
+        type: 'payment.paid',
+        data: {
+          attributes: {
+            ...paymentResponse.data.data.attributes,
+            metadata: metadata
+          }
+        }
+      });
+    }
+
+  } catch (error) {
+    console.error('[Webhook] Error creating payment from source:', error.response?.data || error.message);
+  }
+};
+
+// Handle failed payments
+const handleFailedPayment = async (event) => {
+  const orderId = event.data.attributes.metadata?.orderId;
+  if (!orderId) return;
+
+  await orderModel.findByIdAndUpdate(orderId, {
+    payment: false,
+    paymentStatus: "failed",
+    status: "Payment Failed",
+    $push: {
+      statusHistory: {
+        status: "Payment Failed",
+        notes: `Failed via webhook: ${event.type}`,
+        date: new Date()
+      }
+    }
+  });
+  console.log(`[Webhook] Marked order ${orderId} as failed`);
+};
+
+// Verify webhook signature
+const verifyWebhookSignature = (payload, signature) => {
+  if (process.env.NODE_ENV !== 'production') {
+    return true; // Skip in non-production for testing
+  }
+
+  const webhookSecret = process.env.PAYMONGO_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    console.error('[Webhook] Missing webhook secret');
+    return false;
+  }
+
+  const hmac = crypto.createHmac('sha256', webhookSecret);
+  const digest = hmac.update(JSON.stringify(payload)).digest('hex');
+  return signature === digest;
+};
+
+// Create Paymongo payment
 export const placeOrderPaymongo = async (req, res) => {
   try {
     const {
@@ -225,6 +373,9 @@ export const placeOrderPaymongo = async (req, res) => {
                 name: `${address.firstName} ${address.lastName}`,
                 email: address.email,
                 phone: address.phone
+              },
+              metadata: {
+                orderId: order._id.toString()
               }
             }
           }
@@ -248,61 +399,54 @@ export const placeOrderPaymongo = async (req, res) => {
     }
 
     // Card payments
-    if (normalizedPaymentMethod.type === "card") {
-      const checkoutSession = await axios.post(
-        "https://api.paymongo.com/v1/checkout_sessions",
-        {
-          data: {
-            attributes: {
-              billing: {
-                name: `${address.firstName} ${address.lastName}`,
-                email: address.email,
-                phone: address.phone
+    const checkoutSession = await axios.post(
+      "https://api.paymongo.com/v1/checkout_sessions",
+      {
+        data: {
+          attributes: {
+            billing: {
+              name: `${address.firstName} ${address.lastName}`,
+              email: address.email,
+              phone: address.phone
+            },
+            send_email_receipt: true,
+            show_description: true,
+            show_line_items: true,
+            line_items: [
+              {
+                currency: "PHP",
+                amount: amountInCentavos,
+                name: `Order #${order.orderNumber}`,
+                quantity: 1,
               },
-              send_email_receipt: true,
-              show_description: true,
-              show_line_items: true,
-              line_items: [
-                {
-                  currency: "PHP",
-                  amount: amountInCentavos,
-                  name: `Order #${order.orderNumber}`,
-                  quantity: 1,
-                },
-              ],
-              payment_method_types: ["card"],
-              description: `Payment for Order #${order.orderNumber}`,
-              reference_number: order.orderNumber,
-              redirect: {
-                success: `${process.env.FRONTEND_URL}/verify-payment?orderId=${order._id}&status=success`,
-                failed: `${process.env.FRONTEND_URL}/verify-payment?orderId=${order._id}&status=failed`
-              },
-              metadata: {
-                orderId: order._id.toString()
-              }
+            ],
+            payment_method_types: ["card"],
+            description: `Payment for Order #${order.orderNumber}`,
+            reference_number: order.orderNumber,
+            redirect: {
+              success: `${process.env.FRONTEND_URL}/verify-payment?orderId=${order._id}&status=success`,
+              failed: `${process.env.FRONTEND_URL}/verify-payment?orderId=${order._id}&status=failed`
+            },
+            metadata: {
+              orderId: order._id.toString()
             }
           }
-        },
-        {
-          headers: {
-            Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
-            "Content-Type": "application/json"
-          }
         }
-      );
+      },
+      {
+        headers: {
+          Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
 
-      return res.json({
-        success: true,
-        redirect: true,
-        paymentUrl: checkoutSession.data.data.attributes.checkout_url,
-        orderId: order._id,
-        orderNumber: order.orderNumber
-      });
-    }
-
-    return res.status(400).json({
-      success: false,
-      message: `Unsupported payment method: ${paymentMethod}`
+    return res.json({
+      success: true,
+      redirect: true,
+      paymentUrl: checkoutSession.data.data.attributes.checkout_url,
+      orderId: order._id,
+      orderNumber: order.orderNumber
     });
 
   } catch (error) {
@@ -320,7 +464,7 @@ export const placeOrderPaymongo = async (req, res) => {
   }
 };
 
-// Enhanced verifyPayment with polling mechanism
+// Verify payment status
 export const verifyPayment = async (req, res) => {
   try {
     const { orderId, payment_intent_id, source_id, status } = req.query;
@@ -351,14 +495,15 @@ export const verifyPayment = async (req, res) => {
         $push: {
           statusHistory: {
             status: "Payment Failed",
-            notes: "User was redirected back from payment gateway with failed status"
+            notes: "User was redirected back from payment gateway with failed status",
+            date: new Date()
           }
         }
       });
       
       return res.json({
         success: false,
-        message: "Payment failed",
+        message: "Payment was cancelled or failed. You can retry the payment.",
         redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentFailed=true&orderId=${orderId}`
       });
     }
@@ -377,6 +522,7 @@ export const verifyPayment = async (req, res) => {
         );
 
         const sourceStatus = sourceResponse.data.data.attributes.status;
+        const paymentMethod = sourceResponse.data.data.attributes.type === 'gcash' ? 'GCash' : 'GrabPay';
 
         if (sourceStatus === 'consumed' || sourceStatus === 'paid') {
           // Check if payment was already processed by webhook
@@ -386,10 +532,12 @@ export const verifyPayment = async (req, res) => {
               payment: true,
               paymentStatus: "paid",
               status: "Order Placed",
+              paymentMethod: paymentMethod,
               $push: {
                 statusHistory: {
                   status: "Payment Verified",
-                  notes: `Payment verified via source (${sourceStatus})`
+                  notes: `Payment verified via source (${sourceStatus})`,
+                  date: new Date()
                 }
               }
             },
@@ -408,12 +556,90 @@ export const verifyPayment = async (req, res) => {
             message: "Payment successful",
             redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentSuccess=true&orderId=${orderId}`
           });
+        } else if (sourceStatus === 'chargeable') {
+          // Source is chargeable, create payment
+          console.log('[Verify] Source is chargeable, creating payment...');
+          
+          try {
+            const paymentResponse = await axios.post(
+              'https://api.paymongo.com/v1/payments',
+              {
+                data: {
+                  attributes: {
+                    amount: sourceResponse.data.data.attributes.amount,
+                    currency: sourceResponse.data.data.attributes.currency,
+                    source: {
+                      id: source_id,
+                      type: 'source'
+                    },
+                    description: `Payment for Order #${existingOrder.orderNumber}`
+                  }
+                }
+              },
+              {
+                headers: {
+                  Authorization: `Basic ${Buffer.from(process.env.PAYMONGO_SECRET_KEY).toString("base64")}`,
+                  "Content-Type": "application/json"
+                }
+              }
+            );
+
+            console.log('[Verify] Payment created:', paymentResponse.data.data.id);
+            
+            if (paymentResponse.data.data.attributes.status === 'paid') {
+              // Payment successful, update order
+              const updatedOrder = await orderModel.findByIdAndUpdate(
+                orderId,
+                {
+                  payment: true,
+                  paymentStatus: "paid",
+                  status: "Order Placed",
+                  paymentMethod: paymentMethod,
+                  $push: {
+                    statusHistory: {
+                      status: "Payment Completed",
+                      notes: "Payment created and completed via verification",
+                      date: new Date()
+                    }
+                  }
+                },
+                { new: true }
+              );
+
+              // Deduct stock
+              for (const item of updatedOrder.items) {
+                await productModel.findByIdAndUpdate(item.productId, {
+                  $inc: { stock: -item.quantity }
+                });
+              }
+
+              return res.json({
+                success: true,
+                message: "Payment successful",
+                redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentSuccess=true&orderId=${orderId}`
+              });
+            } else {
+              return res.json({
+                success: false,
+                message: "Payment processing",
+                redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentPending=true&orderId=${orderId}`
+              });
+            }
+          } catch (paymentError) {
+            console.error('[Verify] Error creating payment:', paymentError.response?.data || paymentError.message);
+            return res.json({
+              success: false,
+              message: "Payment processing failed",
+              redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentFailed=true&orderId=${orderId}`
+            });
+          }
         } else if (sourceStatus === 'pending') {
-          // Payment still processing
+          // Payment still processing - user needs to complete payment
           return res.json({
             success: false,
-            message: "Payment still processing",
-            redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentPending=true&orderId=${orderId}`
+            message: "Payment not completed. Please complete the payment on Paymongo's side.",
+            redirectUrl: `${process.env.FRONTEND_URL}/orders?paymentPending=true&orderId=${orderId}`,
+            paymentUrl: `https://secure-authentication.paymongo.com/sources?id=${source_id}`
           });
         } else {
           // Payment failed
@@ -421,10 +647,12 @@ export const verifyPayment = async (req, res) => {
             payment: false,
             paymentStatus: "failed",
             status: "Payment Failed",
+            paymentMethod: paymentMethod,
             $push: {
               statusHistory: {
                 status: "Payment Failed",
-                notes: `Source status: ${sourceStatus}`
+                notes: `Source status: ${sourceStatus}`,
+                date: new Date()
               }
             }
           });
@@ -476,7 +704,10 @@ export const verifyPayment = async (req, res) => {
               },
             }
           );
-          paymentMethod = pmResponse.data.data.attributes.type;
+          paymentMethod = pmResponse.data.data.attributes.type === 'card' ? 
+                         'Credit/Debit Card' : 
+                         pmResponse.data.data.attributes.type.charAt(0).toUpperCase() + 
+                         pmResponse.data.data.attributes.type.slice(1);
         }
 
         // Handle payment status
@@ -497,11 +728,12 @@ export const verifyPayment = async (req, res) => {
                 payment: true,
                 paymentStatus: "paid",
                 status: "Order Placed",
-                paymentMethod: paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1),
+                paymentMethod: paymentMethod,
                 $push: {
                   statusHistory: {
                     status: "Payment Verified",
-                    notes: "Payment verified via payment intent"
+                    notes: "Payment verified via payment intent",
+                    date: new Date()
                   }
                 }
               }, { new: true });
@@ -526,11 +758,12 @@ export const verifyPayment = async (req, res) => {
               payment: false,
               paymentStatus: "failed",
               status: "Payment Failed",
-              paymentMethod: paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1),
+              paymentMethod: paymentMethod,
               $push: {
                 statusHistory: {
                   status: "Payment Failed",
-                  notes: `Payment intent status: ${paymentStatus}`
+                  notes: `Payment intent status: ${paymentStatus}`,
+                  date: new Date()
                 }
               }
             });
@@ -593,7 +826,8 @@ export const verifyPayment = async (req, res) => {
         $push: {
           statusHistory: {
             status: "Verification Error",
-            notes: error.message.substring(0, 200)
+            notes: error.message.substring(0, 200),
+            date: new Date()
           }
         }
       });
@@ -606,8 +840,7 @@ export const verifyPayment = async (req, res) => {
   }
 };
 
-
-
+// Retry failed payment
 export const retryPaymongoPayment = async (req, res) => {
   try {
     const { orderId } = req.body;
@@ -620,22 +853,21 @@ export const retryPaymongoPayment = async (req, res) => {
       });
     }
 
-    // Recreate payment intent with the same order details
-   const subtotal = order.items.reduce((sum, item) => {
-  const basePrice = item.finalPrice || item.price || 0;
-  return sum + basePrice * item.quantity;
-}, 0);
+    // Recalculate amount
+    const subtotal = order.items.reduce((sum, item) => {
+      const basePrice = item.finalPrice || item.price || 0;
+      return sum + basePrice * item.quantity;
+    }, 0);
 
-const finalAmount = Math.round((subtotal - (order.discountAmount || 0) - (order.voucherAmount || 0) + (order.shippingFee || 0)) * 100) / 100;
-const amountInCentavos = Math.round(finalAmount * 100);
-
-
+    const finalAmount = Math.round((subtotal - (order.discountAmount || 0) - (order.voucherAmount || 0) + (order.shippingFee || 0)) * 100) / 100;
+    const amountInCentavos = Math.round(finalAmount * 100);
 
     // Payment method mapping
     const paymentMethodMap = {
       'gcash': 'gcash',
       'grab_pay': 'grab_pay',
-      'credit/debit card': 'card'
+      'credit/debit card': 'card',
+      'card': 'card'
     };
 
     const paymentMethod = order.paymentMethod.toLowerCase();
@@ -666,6 +898,9 @@ const amountInCentavos = Math.round(finalAmount * 100);
                 name: `${order.address.firstName} ${order.address.lastName}`,
                 email: order.address.email,
                 phone: order.address.phone
+              },
+              metadata: {
+                orderId: order._id.toString()
               }
             }
           }
